@@ -147,6 +147,21 @@ class Detection(unittest.TestCase):
         s.run(12)
         self.assertEqual(s.node.state, "healthy")
 
+    def test_hub_on_new_address_after_restart_is_not_unknown(self):
+        s = self.learned()
+        saved = hc.Baseline.from_dict(s.node.baseline.to_dict())
+        s.node = hc.HiveNode("lapA", KEYS["lapA"], KEYS, ADMIN, DEMO, 2, my_ip=ME, baseline=saved, now=s.t)
+        new_hub = "10.0.0.9"
+        end = s.t + 60
+        while s.t < end:
+            if s.rng.random() < 3 * 0.05:
+                s.seq += 1
+                s.node.on_data(new_hub, cmd(s.seq), s.t)
+            s.t = round(s.t + 0.05, 2)
+            s.node.tick(s.t)
+        self.assertEqual(s.node.hub_ip, new_hub)
+        self.assertEqual(s.node.state, "healthy")
+
     def test_baseline_roundtrip(self):
         s = self.learned()
         b = hc.Baseline.from_dict(s.node.baseline.to_dict())

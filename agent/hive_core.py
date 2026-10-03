@@ -396,7 +396,9 @@ class HiveNode:
             self.window_start = now
 
         learning = self.state == "learning"
-        known = learning or (self.baseline is not None and ip in self.baseline.known)
+        # The hub always counts as known: after a restart with a saved baseline it may
+        # come back on a different DHCP address.
+        known = learning or ip == self.hub_ip or (self.baseline is not None and ip in self.baseline.known)
         self.window.add(ip, len(raw), known, not ok)
         if learning and self.learn_start is not None:
             if self.learn_base is None:
