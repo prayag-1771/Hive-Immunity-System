@@ -195,6 +195,34 @@ sh firmware/test/run_host_test.sh      # ESP32 firmware on a PC (Linux/WSL, need
 
 Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip learning.
 
+### Tested setup: one laptop, one Raspberry Pi, one ESP32
+
+This is the configuration verified end to end on real hardware, on a phone hotspot
+(2.4 GHz, WPA2):
+
+| Device | Roles | Command |
+|---|---|---|
+| Laptop (Windows) | dashboard + hub, Laptop A node, gateway guardian | `python tools/hive_up.py dashboard node:lapA gateway` |
+| Raspberry Pi 5 | Laptop B node, attacker, dumb bulb | see below |
+| ESP32 DevKit (CP2102) | on-chip node | flashed once, joins the hotspot by itself |
+
+The attacker and the bulb must not share an address with a node, so the Pi gets two
+extra temporary addresses (gone after a reboot). Pick two free ones in the hotspot's
+subnet, check them, add them, and start the Pi's roles:
+
+```sh
+sudo arping -D -c 3 -I wlan0 10.229.175.166 && sudo arping -D -c 3 -I wlan0 10.229.175.120
+sudo ip addr add 10.229.175.166/32 dev wlan0      # attacker
+sudo ip addr add 10.229.175.120/32 dev wlan0      # dumb bulb
+python3 tools/hive_up.py node:lapB attacker@10.229.175.166 bulb@10.229.175.120 --gateway <laptop-ip>
+```
+
+![Dashboard on real hardware: the ESP32 detected the attack with its 152-byte model, the Pi (Laptop B) sent the second report, the laptop adopted and blocked the attacker on its first packet, and the gateway isolated the bulb](docs/dashboard-hardware.png)
+
+Before every demo run, press **Reset** (blocks last 5 minutes, and a node that already
+blocks the attacker silently drops the attack). If a device was attacked while it was
+learning, press **Relearn**.
+
 ### Smaller setups
 
 - **No third laptop:** the Raspberry Pi takes the attacker and dumb-bulb roles. The
