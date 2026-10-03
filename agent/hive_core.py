@@ -47,6 +47,7 @@ NETWORK_DEFAULTS = {
     "sink_port": 47003,
     "attacker_port": 47004,
     "dumb_port": 47005,
+    "ble_port": 47006,
     "http_port": 8080,
     "broadcast": "auto",   # this /24's directed broadcast + 255.255.255.255
 }

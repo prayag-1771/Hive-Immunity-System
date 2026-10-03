@@ -11,6 +11,7 @@ Roles:
   gateway          the dumb-device guardian (add --nft on a Linux gateway, as root)
   attacker[@ip]    the scenario daemon; @ip binds a specific (extra) address
   bulb[@ip]        the simulated dumb bulb; @ip binds a specific (extra) address
+  blebulb          the simulated Bluetooth bulb (Linux + bleak; run hive_up with the venv python)
 """
 
 import argparse
@@ -40,6 +41,8 @@ def command(role, args):
     if kind == "bulb":
         extra = (["--bind", bind] if bind else []) + (["--gateway", args.gateway] if args.gateway else [])
         return "bulb", py + ["tools/dumb_device.py"] + cfg + extra
+    if kind == "blebulb":
+        return "blebulb", py + ["tools/ble_bulb.py"] + cfg
     raise SystemExit(f"unknown role '{role}' (see --help)")
 
 

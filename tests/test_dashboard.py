@@ -106,6 +106,29 @@ class DashboardState(unittest.TestCase):
         self.assertIsNone(snap["immunity"]["t0"])
         self.assertEqual(snap["defenses"], {})
 
+    def test_wifi_and_bluetooth_devices_get_tiles(self):
+        self.d._on_msg({"v": 1, "t": "status", "node": "ble-a3bc", "kind": "ble", "state": "healthy",
+                        "label": "blebulb", "addr": "88:A2:9E:40:A3:BC"}, "127.0.9.2")
+        self.d._on_msg({"v": 1, "t": "status", "node": "bulb", "kind": "dumb", "state": "healthy"}, "127.0.9.1")
+        devices = self.d.snapshot()["devices"]
+        self.assertEqual([(x["id"], x["kind"]) for x in devices], [("bulb", "dumb"), ("ble-a3bc", "ble")])
+        self.assertEqual(self.d.gateway_ip, "127.0.9.1")  # only the Wi-Fi gateway's address is learned
+
+    def test_bluetooth_bulb_trigger_needs_its_simulator(self):
+        ok, msg = self.d.scenario(["infect_ble"])
+        self.assertFalse(ok)
+        self.assertIn("ble_bulb.py", msg)
+        self.d._on_msg({"v": 1, "t": "hello", "role": "blebulb", "busy": False, "ble": "connected"}, "127.0.9.50")
+        self.assertTrue(self.d.scenario(["infect_ble"])[0])
+        self.assertEqual(self.d.snapshot()["blebulb"]["ble"], "connected")
+
+    def test_template_mentions_bluetooth_and_gateway(self):
+        self.event("esp32", "ble_quarantine", "blebulb 88:A2:9E:40:A3:BC cut off")
+        self.event("gateway", "quarantine", "bulb isolated", "10.0.0.20")
+        text = self.d._template(list(self.d.events), {})
+        self.assertIn("Bluetooth hub cut off", text)
+        self.assertIn("router noticed a Wi-Fi bulb", text)
+
     def test_template_explanation_grammar(self):
         self.event("attacker", "attack_started", "", ATT, ts=1.0)
         self.event("esp32", "quarantine", "score", ATT)

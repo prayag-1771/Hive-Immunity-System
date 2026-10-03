@@ -19,6 +19,7 @@
   .logo span { color: var(--amber); }
   .tagline { color: var(--muted); font-size: 17px; }
   .spacer { flex: 1; }
+  .chip[hidden] { display: none; }
   .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px;
     background: var(--panel2); color: var(--muted); font-size: 14px; white-space: nowrap; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--grey); }
@@ -122,6 +123,7 @@
   <span class="chip"><span class="dot" id="conn"></span><span id="connText">connecting</span></span>
   <span class="chip"><span class="dot" id="attDot"></span><span id="attText">attacker</span></span>
   <span class="chip"><span class="dot" id="dumbDot"></span><span id="dumbText">bulb sim</span></span>
+  <span class="chip" id="bleChip" hidden><span class="dot" id="bleDot"></span><span id="bleText">BLE bulb sim</span></span>
 </header>
 
 <main>
@@ -177,8 +179,27 @@ function kindText(n) {
 }
 
 // ---------------------------------------------------------------- tiles
+// Devices that cannot run Hive: the Wi-Fi bulb (guarded by the router) and Bluetooth
+// devices (guarded by the ESP32's Bluetooth hub). Placeholders until they report.
+function deviceList() {
+  const devs = (state.devices || []).slice();
+  if (!devs.some((d) => d.kind === "dumb")) devs.unshift({id: "wifi-bulb", kind: "dumb", placeholder: true});
+  if (!devs.some((d) => d.kind === "ble") && state.blebulb && state.blebulb.online)
+    devs.push({id: "ble-bulb", kind: "ble", placeholder: true});
+  return devs;
+}
+function bleAvailable() {
+  return (state.blebulb && state.blebulb.online) || (state.devices || []).some((d) => d.kind === "ble");
+}
+function deviceTitle(d) {
+  if (d.kind === "dumb") return "Dumb bulb";
+  const l = d.status && d.status.label;
+  return !l || l === "blebulb" ? "BLE bulb" : l;
+}
+
 function buildTiles() {
-  const sig = state.nodes.map((n) => n.id).join(",");
+  const devs = deviceList();
+  const sig = state.nodes.map((n) => n.id).join(",") + "|" + devs.map((d) => d.id).join(",") + "|" + bleAvailable();
   if (sig === built) return;
   built = sig;
   labels = {};
@@ -193,15 +214,20 @@ function buildTiles() {
       <div class="score" id="score-${n.id}"></div>
       <div class="counters" id="cnt-${n.id}"></div>
       <div class="t-foot" id="foot-${n.id}"></div>
-    </div>`).join("") + `
-    <div class="tile offline" id="tile-bulb" data-node="bulb">
-      <div class="t-head"><div class="t-name">Dumb bulb</div><div class="t-ip" id="ip-bulb"></div></div>
-      <div class="t-kind">bought Wi-Fi bulb &middot; can't run Hive &middot; guarded by the router</div>
-      <div><span class="pill offline" id="pill-bulb">OFFLINE</span></div>
-      <div class="badges" id="badges-bulb"></div>
-      <div class="score" id="score-bulb"></div>
-      <div class="t-foot" id="foot-bulb">start gateway/guardian.py and tools/dumb_device.py</div>
-    </div>`;
+    </div>`).join("") + devs.map((d) => `
+    <div class="tile offline" id="tile-${d.id}" data-kind="${d.kind}">
+      <div class="t-head"><div class="t-name" id="name-${d.id}">${esc(deviceTitle(d))}</div><div class="t-ip" id="ip-${d.id}"></div></div>
+      <div class="t-kind">${d.kind === "ble"
+        ? "Bluetooth bulb &middot; can't run Hive &middot; guarded by the ESP32's Bluetooth hub"
+        : "bought Wi-Fi bulb &middot; can't run Hive &middot; guarded by the router"}</div>
+      <div><span class="pill offline" id="pill-${d.id}">OFFLINE</span>${d.kind === "ble"
+        ? `<span class="light"><span class="bulb" id="light-${d.id}"></span>light</span>` : ""}</div>
+      <div class="badges" id="badges-${d.id}"></div>
+      <div class="score" id="score-${d.id}"></div>
+      <div class="t-foot" id="foot-${d.id}">${d.kind === "ble"
+        ? "waiting for the Bluetooth bulb to connect to the ESP32 hub"
+        : "start gateway/guardian.py and tools/dumb_device.py"}</div>
+    </div>`).join("");
   buildControls();
 }
 
@@ -240,21 +266,32 @@ function renderNode(n) {
     : `model: ${det}, ${s.model_bytes} bytes`);
 }
 
-function renderBulb() {
-  const b = state.bulb, s = b.status, tile = $("tile-bulb");
-  const st = !b.online || !s ? "offline" : s.state;
+function renderDevice(d) {
+  const s = d.status, tile = $("tile-" + d.id);
+  if (!tile || d.placeholder) return;
+  // A cut-off Bluetooth device stays quarantined even while its link is down.
+  const st = !d.online || !s ? "offline" : s.state;
   tile.className = "tile " + st + (tile.classList.contains("hit") ? " hit" : "");
-  const pill = $("pill-bulb");
+  $("name-" + d.id).textContent = deviceTitle(d);
+  const pill = $("pill-" + d.id);
   pill.className = "pill " + st;
-  pill.textContent = st === "quarantined" ? "QUARANTINED" : st.toUpperCase();
+  pill.textContent = st.toUpperCase();
   if (!s) return;
-  $("ip-bulb").textContent = s.ip || "";
-  $("badges-bulb").innerHTML = st === "quarantined" ? `<span class="badge gw">isolated by the gateway</span>` : "";
-  $("score-bulb").innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
   const f = s.features || [0, 0];
-  $("foot-bulb").innerHTML = (st === "quarantined" ? `<strong>${s.dropped || 0} packets dropped</strong> at the gateway`
-    : `${(+f[0]).toFixed(1)} msgs/s &middot; ${(+f[1]).toFixed(0)} destinations/s`) + ` &middot; watched by gateway ${esc(s.by || "")}`
-    + (s.nft ? " (nftables)" : "");
+  if (d.kind === "ble") {
+    $("ip-" + d.id).textContent = s.addr || "";
+    $("light-" + d.id).className = "bulb" + (s.light && st !== "quarantined" ? " on" : "");
+    $("badges-" + d.id).innerHTML = st === "quarantined" ? `<span class="badge gw">cut off by the Bluetooth hub</span>` : "";
+    $("foot-" + d.id).innerHTML = (st === "quarantined" ? `<strong>reconnections refused</strong>`
+      : `${(+f[0]).toFixed(1)} reports/s &middot; ${Math.round((+f[1]) * 100)}% malformed`) + ` &middot; hub ${esc(s.by || "")}`;
+  } else {
+    $("ip-" + d.id).textContent = s.ip || "";
+    $("badges-" + d.id).innerHTML = st === "quarantined" ? `<span class="badge gw">isolated by the gateway</span>` : "";
+    $("foot-" + d.id).innerHTML = (st === "quarantined" ? `<strong>${s.dropped || 0} packets dropped</strong> at the gateway`
+      : `${(+f[0]).toFixed(1)} msgs/s &middot; ${(+f[1]).toFixed(0)} destinations/s`) + ` &middot; watched by gateway ${esc(s.by || "")}`
+      + (s.nft ? " (nftables)" : "");
+  }
+  $("score-" + d.id).innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
 }
 
 function renderSide() {
@@ -271,13 +308,17 @@ function renderSide() {
   $("attText").textContent = a.online ? `attacker ${a.ip}${a.busy ? " (attacking)" : ""}` : "attacker offline";
   $("dumbDot").className = "dot" + (d.online ? " on" : "");
   $("dumbText").textContent = d.online ? `bulb sim ${d.ip}` : "bulb sim offline";
+  const b = state.blebulb || {};
+  $("bleChip").hidden = !b.online;
+  $("bleDot").className = "dot" + (b.online ? (b.busy ? " warn" : (b.ble === "connected" ? " on" : "")) : "");
+  $("bleText").textContent = `BLE bulb sim: ${b.busy ? "infected, " : ""}${b.ble || "starting"}`;
 }
 
 function render() {
   if (!state) return;
   buildTiles();
   state.nodes.forEach(renderNode);
-  renderBulb();
+  deviceList().forEach(renderDevice);
   renderSide();
 }
 
@@ -298,6 +339,10 @@ function sentence(kind, who, d) {
     case "attack_finished": return `<b>ATTACKER</b> ${d}`;
     case "cure_step": return `<b>ATTACKER</b> poisons the vaccine channel &mdash; ${d}`;
     case "scenario": case "reset": return `<b>Operator</b> ${d}`;
+    case "ble_quarantine": return `<b>${who}</b> (Bluetooth hub) cut off a misbehaving Bluetooth device &mdash; ${d}`;
+    case "ble_refused": return `<b>${who}</b> (Bluetooth hub) ${d}`;
+    case "ble_connected": return `<b>${who}</b> (Bluetooth hub): ${d}`;
+    case "ble_learned": return `<b>${who}</b> (Bluetooth hub) learned a Bluetooth device's normal behaviour: ${d}`;
     default: return `<b>${who}</b> ${kind.replace(/_/g, " ")}: ${d}`;
   }
 }
@@ -319,8 +364,11 @@ function addLog(e, animate) {
     while (log.children.length > 80) log.lastChild.remove();
   }
   if (!animate) return;
-  if (e.kind === "vax_issued") flyVaccine(e.node === "gateway" ? "bulb" : e.node);
-  if (e.kind === "quarantine" || e.kind === "vax_adopted") bump(e.node === "gateway" ? "bulb" : e.node);
+  const dumbTile = (document.querySelector('[data-kind="dumb"]') || {}).id;
+  if (e.kind === "vax_issued") flyVaccine(e.node === "gateway" && dumbTile ? dumbTile.slice(5) : e.node);
+  if (e.kind === "quarantine" || e.kind === "vax_adopted") bump(e.node === "gateway" && dumbTile ? dumbTile.slice(5) : e.node);
+  if (e.kind === "ble_quarantine" || e.kind === "ble_refused")
+    document.querySelectorAll('[data-kind="ble"]').forEach((t) => bump(t.id.slice(5)));
   if (e.kind === "blocked_first_packet") {
     const st = state && state.nodes.find((n) => n.id === e.node);
     if (st && st.status && st.status.state !== "quarantined") { instantUntil[e.node] = Date.now() + 8000; bump(e.node); }
@@ -363,6 +411,7 @@ const KEYS = {};
 function buildControls() {
   const btns = state.nodes.map((n, i) => ({cls: "attack", text: `Attack ${n.label}`, key: String(i + 1), path: `scenario/attack/${n.id}`}));
   btns.push({cls: "bulbbtn", text: "Infect dumb bulb", key: "b", path: "scenario/infect_bulb"});
+  if (bleAvailable()) btns.push({cls: "bulbbtn", text: "Infect BLE bulb", key: "t", path: "scenario/infect_ble"});
   btns.push({cls: "cure", text: "Attack the cure", key: "c", path: "scenario/cure"});
   btns.push({cls: "reset", text: "Reset", key: "r", path: "reset"});
   btns.push({cls: "small", text: "Explain incident", key: "e", path: "explain"});

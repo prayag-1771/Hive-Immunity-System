@@ -55,10 +55,11 @@ class Dashboard:
                       for nid, e in self.entries.items()}
         self.gateway_ip = next((hc.static_ip(e.get("ip")) for e in cfg["issuers"]
                                 if e["node_id"] == "gateway"), None)
-        self.bulb = {"status": None, "seen": 0.0}
+        self.devices = {}   # devices that cannot run Hive: Wi-Fi ("dumb", via the gateway), BLE (via the hub)
         self.peers = {
             "attacker": {"ip": hc.static_ip(cfg["attacker"].get("ip")), "seen": 0.0, "busy": False},
             "dumb": {"ip": hc.static_ip(cfg["dumb"].get("ip")), "seen": 0.0, "busy": False},
+            "blebulb": {"ip": None, "seen": 0.0, "busy": False, "ble": None},
         }
         self.events = collections.deque(maxlen=200)
         self.subscribers = []
@@ -133,11 +134,14 @@ class Dashboard:
                     if target and target in msg.get("blocklist", []) and node not in self.immunity["nodes"]:
                         self.immunity["nodes"][node] = (self.clock(), "adopted")
                     self._check_immune()
-                elif msg.get("kind") == "dumb":
-                    self.bulb.update(status=msg, seen=now)
-                    self.gateway_ip = self.gateway_ip or ip
+                elif msg.get("kind") in ("dumb", "ble") and isinstance(node, str):
+                    self.devices[node] = {"status": msg, "seen": now}
+                    if msg["kind"] == "dumb":
+                        self.gateway_ip = self.gateway_ip or ip
             elif t == "hello" and msg.get("role") in self.peers:
                 self.peers[msg["role"]].update(ip=ip, seen=now, busy=bool(msg.get("busy")))
+                if msg["role"] == "blebulb":
+                    self.peers["blebulb"]["ble"] = msg.get("ble")
             elif t == "event" and isinstance(msg.get("kind"), str):
                 key = (msg.get("node"), msg["kind"], msg.get("detail"))
                 if key == self.last_event_key and self.clock() - self.last_event_at < 0.3:
@@ -167,9 +171,10 @@ class Dashboard:
 
     def _trigger(self, role, name, **args):
         peer = self.peers[role]
-        port = self.cfg["network"]["attacker_port" if role == "attacker" else "dumb_port"]
+        port = self.cfg["network"][{"attacker": "attacker_port", "dumb": "dumb_port", "blebulb": "ble_port"}[role]]
         if not peer["ip"]:
-            return False, f"{role} is not connected (start tools/{'scenarios.py serve' if role == 'attacker' else 'dumb_device.py'})"
+            tool = {"attacker": "scenarios.py serve", "dumb": "dumb_device.py", "blebulb": "ble_bulb.py"}[role]
+            return False, f"{role} is not connected (start tools/{tool})"
         self.trigger_seq = max(self.trigger_seq + 1, int(time.time() * 1000))
         m = {"v": 1, "t": "trigger", "name": name, "seq": self.trigger_seq, "args": args}
         m["sig"] = hc.sign(self.cfg["admin_key"], m)
@@ -214,6 +219,11 @@ class Dashboard:
             if ok and name == "infect_bulb":
                 self.note("pressed: infect the dumb bulb", "scenario")
             return ok, msg
+        if name in ("infect_ble", "heal_ble"):
+            ok, msg = self._trigger("blebulb", "infect" if name == "infect_ble" else "heal")
+            if ok and name == "infect_ble":
+                self.note("pressed: infect the Bluetooth bulb", "scenario")
+            return ok, msg
         return False, f"unknown scenario {'/'.join(parts)}"
 
     def reset(self):
@@ -222,6 +232,8 @@ class Dashboard:
             self._trigger("attacker", "stop")
         if self.peers["dumb"]["ip"]:
             self._trigger("dumb", "heal")
+        if self.peers["blebulb"]["ip"]:
+            self._trigger("blebulb", "heal")
         with self.lock:
             self._reset_immunity()
             self.defenses = {}
@@ -278,6 +290,12 @@ class Dashboard:
                          f"and blocked {target} before it ever reached {'them' if len(adopted) > 1 else 'it'}.")
         if rejected:
             parts.append("Poisoned vaccines were thrown out: " + ", ".join(rejected) + ".")
+        if any(e["kind"] == "quarantine" and e["node"] == "gateway" for e in events):
+            parts.append("The router noticed a Wi-Fi bulb that cannot run Hive suddenly flooding the network "
+                         "and isolated it.")
+        if any(e["kind"] == "ble_quarantine" for e in events):
+            parts.append("The ESP32's Bluetooth hub cut off a Bluetooth bulb that started flooding it with "
+                         "junk, and refuses to let it reconnect.")
         if not parts:
             parts.append("No incident yet: every device is running normally.")
         return " ".join(parts)
@@ -296,10 +314,15 @@ class Dashboard:
             im = self.immunity
             return {
                 "now": time.time(), "quorum": self.cfg["quorum"], "nodes": nodes,
-                "bulb": {"online": now - self.bulb["seen"] < OFFLINE_AFTER, "status": self.bulb["status"]},
+                "devices": [{"id": d, "kind": rec["status"].get("kind"), "online": now - rec["seen"] < OFFLINE_AFTER,
+                             "status": rec["status"]}
+                            for d, rec in sorted(self.devices.items(),
+                                                 key=lambda kv: (kv[1]["status"].get("kind") != "dumb", kv[0]))],
                 "attacker": {"online": now - self.peers["attacker"]["seen"] < 5,
                              "ip": self.peers["attacker"]["ip"], "busy": self.peers["attacker"]["busy"]},
                 "dumb": {"online": now - self.peers["dumb"]["seen"] < 5, "ip": self.peers["dumb"]["ip"]},
+                "blebulb": {"online": now - self.peers["blebulb"]["seen"] < 5, "ip": self.peers["blebulb"]["ip"],
+                            "busy": self.peers["blebulb"]["busy"], "ble": self.peers["blebulb"]["ble"]},
                 "immunity": {"target": im["target"], "t0": im["t0"], "t1": im["t1"],
                              "nodes": {n: v[1] for n, v in im["nodes"].items()},
                              "instant": im["instant"]},
