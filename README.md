@@ -11,6 +11,8 @@ Peer-to-peer. Offline. No cloud. Runs on a ₹500 ESP32.
 > Big companies buy an immune system for their network. We put one inside every tiny
 > device — so they protect each other, with no cloud and no expensive box.
 
+![Live dashboard mid-demo: the ESP32 and Laptop B detected the attack, Laptop A adopted their vaccines and blocked the attacker on its first packet, and the gateway isolated an infected bulb](docs/dashboard.png)
+
 ---
 
 ## The problem

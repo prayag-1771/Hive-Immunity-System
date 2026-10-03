@@ -208,7 +208,7 @@ function buildTiles() {
 function scoreBar(s) {
   const thr = s.thr || 6, frac = Math.min(1, (s.score || 0) / (thr * 2));
   const col = s.score > thr ? "var(--red)" : (s.score > thr * 0.6 ? "var(--amber)" : "var(--green)");
-  return `<div class="score-label"><span>anomaly score</span><span>${(s.score || 0).toFixed(1)} / ${thr}</span></div>
+  return `<div class="score-label"><span>anomaly score</span><span>${(s.score || 0).toFixed(1)} / ${(+thr).toFixed(1)}</span></div>
     <div class="bar"><i style="width:${(frac * 100).toFixed(1)}%;background:${col}"></i><b></b></div>`;
 }
 function learnBar(p) {
