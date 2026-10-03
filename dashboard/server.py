@@ -256,13 +256,18 @@ class Dashboard:
                           if e["kind"] == "vax_adopted" and e["node"] in self.entries})
         rejected = sorted({e["detail"].split(":")[0] for e in events if e["kind"] == "vax_rejected"})
         target = self.immunity["target"] or "the attacker"
+        def names(xs):
+            return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+
         parts = []
         if detected:
-            parts.append(f"{', '.join(detected)} noticed traffic from {target} that did not match "
-                         f"what it had learned as normal, isolated itself and broadcast a signed vaccine.")
+            many = len(detected) > 1
+            parts.append(f"{names(detected)} {'each ' if many else ''}noticed traffic from {target} that did not "
+                         f"match what {'they' if many else 'it'} had learned as normal, "
+                         f"isolated {'themselves' if many else 'itself'} and broadcast a signed vaccine.")
         if adopted:
-            parts.append(f"{', '.join(adopted)} received matching vaccines from two independent devices "
-                         f"and blocked {target} before it ever reached them.")
+            parts.append(f"{names(adopted)} received matching vaccines from two independent devices "
+                         f"and blocked {target} before it ever reached {'them' if len(adopted) > 1 else 'it'}.")
         if rejected:
             parts.append("Poisoned vaccines were thrown out: " + ", ".join(rejected) + ".")
         if not parts:
