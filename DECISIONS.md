@@ -66,3 +66,30 @@ Choices made while building, where the brief left room. Newest at the bottom.
     in the config (`url`, `model`, `timeout_s`). The exact Gemma 4 tag must be checked
     against the installed Ollama (`ollama list`). Without a model the dashboard falls back
     to a template sentence, so the button never fails on stage.
+20. **Bluetooth: the ESP32 is the hub (a GATT server); the device connects to it.** The
+    Raspberry Pi plays the Bluetooth bulb with bleak, which is easy to script on Linux.
+    Many real bulbs work the other way round; the README says so. Reports are tiny text
+    (`name:seq:light`, at most 20 bytes, so they fit the default BLE MTU). The hub learns
+    per-address report rate and malformed share, cuts the link with
+    `esp_ble_gap_disconnect` (the library's `disconnect()` only closes the GATT session)
+    and refuses that address until a signed reset. The Bluetooth callbacks run in the
+    Bluetooth task, so they only push into a locked queue; `loop()` does the logic.
+21. **The firmware uses the `huge_app` partition** (3 MB app, no OTA): Wi-Fi plus Bluedroid
+    is 1.67 MB, more than the default 1.3 MB. NVS stays at 0x9000, so learned baselines
+    survive the switch.
+22. **Wi-Fi with Bluetooth:** modem sleep is on (Espressif's coexistence rule), the
+    Bluetooth hub starts only once Wi-Fi is up (or after 15 s), and a Wi-Fi attempt gets
+    20 s before it is restarted. Without Bluetooth, modem sleep stays off.
+23. **Never send outside the local segment.** Found on real hardware: the hotspot dropped,
+    the laptop rejoined a campus network, and the hub kept sending to the old addresses
+    through the campus router. `hive_net.send` now asks the routing table (a UDP
+    `connect()` sends nothing) and drops anything that would leave this machine's /24.
+24. **The gateway runs on the Pi with nftables**, started at boot by `hive-pi.service`,
+    which also picks the attacker's and the bulb's extra addresses with `arping`
+    duplicate detection in whatever subnet the hotspot hands out.
+25. **Provisioning remembers the ESP32's Wi-Fi, LED and Bluetooth settings** in
+    `nodes.json` (gitignored), so a plain re-run never writes placeholder Wi-Fi into
+    `secrets.h`.
+26. **Gemma model: `gemma4:e2b-it-qat`**, the smallest Gemma 4 build in Ollama's library
+    (4.3 GB). It replaces the unverified `gemma4` tag of decision 19. Ollama runs from its
+    portable zip, so nothing is installed system-wide.

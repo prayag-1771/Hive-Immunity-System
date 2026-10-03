@@ -258,13 +258,13 @@ class Dashboard:
                   "peer-to-peer immune system for IoT devices. In 4 short sentences, say what attacked, "
                   "which devices detected it, how the others became immune via signed vaccines, and "
                   "whether any poisoned vaccines were rejected. Incident JSON:\n" + json.dumps(incident))
-        body = json.dumps({"model": ex.get("model", "gemma4"), "prompt": prompt, "stream": False}).encode()
+        body = json.dumps({"model": ex.get("model", "gemma4:e2b-it-qat"), "prompt": prompt, "stream": False}).encode()
         try:
             req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=ex.get("timeout_s", 25)) as r:
                 text = json.loads(r.read()).get("response", "").strip()
             if text:
-                return {"source": f"{ex.get('model', 'gemma4')} (local)", "text": text}
+                return {"source": f"{ex.get('model', 'gemma4:e2b-it-qat')} (local)", "text": text}
         except Exception:
             pass
         return {"source": "template (no local model reachable)", "text": self._template(recent, states)}

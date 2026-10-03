@@ -51,7 +51,9 @@ One system covers three kinds of device:
 2. **Dumb Wi-Fi devices** are watched by the **gateway**, which learns each device's
    normal behaviour and isolates a misbehaving one. In a real deployment this runs on an
    OpenWrt router; in the demo a laptop or Raspberry Pi plays the router.
-3. **Bluetooth devices**: the paired hub cuts off a misbehaving device (roadmap).
+3. **Bluetooth devices** are watched by a **Bluetooth hub** (here the ESP32 itself). It
+   learns each device's normal reporting, cuts a misbehaving one off the radio and refuses
+   to let it reconnect until an operator reset.
 
 ### Poison-proof vaccines
 
@@ -137,6 +139,36 @@ All messages are compact JSON over UDP. A vaccine's signature is
 `HMAC-SHA256(issuer key, JSON without sig, sorted keys, no spaces)`, and a fixed test
 vector checks the Python and C implementations against `openssl`.
 
+### The gateway (Wi-Fi devices that can't run Hive)
+
+[gateway/guardian.py](gateway/guardian.py) runs on the router. For each device it learns
+the normal message rate and number of destinations. When a device suddenly floods (a bulb
+recruited into a botnet), the gateway quarantines it:
+- **always:** app-level, so the gateway stops accepting and relaying its traffic;
+- **on a Linux gateway, with `--nft`:** the device's address also goes into an nftables set
+  that drops its traffic ([gateway/nft_rules.nft](gateway/nft_rules.nft)).
+
+It also broadcasts a signed vaccine, which warns the Hive nodes.
+
+### The Bluetooth hub (Bluetooth devices that can't run Hive)
+
+The ESP32 doubles as a Bluetooth hub ([firmware/hive_node/ble_hub.h](firmware/hive_node/ble_hub.h)).
+It advertises a small BLE service that Bluetooth devices connect to and report to every
+few seconds (`blebulb:42:1`). For each device it learns the normal report rate and the
+share of malformed reports. When a device starts flooding or sending junk, the hub:
+1. cuts the radio link (`esp_ble_gap_disconnect`), and
+2. refuses every reconnection from that Bluetooth address until a signed reset.
+
+In the demo the Raspberry Pi plays the Bluetooth bulb ([tools/ble_bulb.py](tools/ble_bulb.py),
+using bleak).
+
+### Safety built into the code
+
+Every program refuses to send anything outside the machine's own local network segment,
+using the operating system's routing table. If a laptop drops off the demo hotspot and
+rejoins a campus Wi-Fi, Hive goes quiet instead of leaking traffic, and the attacker tool
+can't be aimed at a real host.
+
 ---
 
 ## Quick start: the whole demo on one laptop
@@ -187,11 +219,12 @@ sh firmware/test/run_host_test.sh      # ESP32 firmware on a PC (Linux/WSL, need
    arduino-cli upload  --fqbn esp32:esp32:esp32:PartitionScheme=huge_app -p COM5 firmware/hive_node   # or /dev/ttyUSB0
    arduino-cli monitor -p COM5 -c baudrate=115200
    ```
-4. **Start the roles:**
-   - Laptop A: `python dashboard/server.py --http 0.0.0.0`,
-     `python agent/hive_agent.py --node lapA` and `sudo python3 gateway/guardian.py --nft`
-   - Laptop B: `python agent/hive_agent.py --node lapB`
-   - Laptop C: `python tools/scenarios.py serve` and `python tools/dumb_device.py`
+4. **Start the roles** with one command per machine ([tools/hive_up.py](tools/hive_up.py)):
+   - Laptop A: `python tools/hive_up.py dashboard node:lapA gateway --http 0.0.0.0`
+     (add `--nft` and run it as root on a Linux gateway)
+   - Laptop B: `python tools/hive_up.py node:lapB`
+   - Laptop C: `python tools/hive_up.py attacker bulb --gateway <laptop-A-ip>`
+   - Bluetooth bulb (Linux with bleak): `python tools/hive_up.py blebulb`
 5. Open the dashboard on the projector and wait for all the tiles to turn green.
 
 Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip learning.
@@ -201,21 +234,26 @@ Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip lear
 This is the configuration verified end to end on real hardware, on a phone hotspot
 (2.4 GHz, WPA2):
 
-| Device | Roles | Command |
+| Device | Roles | How it starts |
 |---|---|---|
-| Laptop (Windows) | dashboard + hub, Laptop A node, gateway guardian | `python tools/hive_up.py dashboard node:lapA gateway` |
-| Raspberry Pi 5 | Laptop B node, attacker, dumb bulb | see below |
-| ESP32 DevKit (CP2102) | on-chip node | flashed once, joins the hotspot by itself |
+| Laptop (Windows) | dashboard + hub, Laptop A node | double-click [deploy/windows/start-laptop-A.cmd](deploy/windows/start-laptop-A.cmd) |
+| Raspberry Pi 5 | Laptop B node, gateway (nftables), attacker, Wi-Fi bulb, Bluetooth bulb | automatically at boot (hive-pi service) |
+| ESP32 DevKit (CP2102) | on-chip node + Bluetooth hub | flashed once, joins the hotspot by itself |
 
-The attacker and the bulb must not share an address with a node, so the Pi gets two
-extra temporary addresses (gone after a reboot). Pick two free ones in the hotspot's
-subnet, check them, add them, and start the Pi's roles:
+The attacker and the bulb must not share an address with a node, so the Pi gives itself
+two extra temporary addresses. At every boot, [deploy/pi/hive-pi.sh](deploy/pi/hive-pi.sh)
+does the following:
+1. waits for the hotspot;
+2. picks two free addresses in its subnet (checked with `arping`) and adds them;
+3. loads the nftables rules and starts all the Pi's roles;
+4. starts over if the hotspot later hands out a different subnet.
+
+One-time install on the Pi (after copying `config/nodes.json` there):
 
 ```sh
-sudo arping -D -c 3 -I wlan0 10.229.175.166 && sudo arping -D -c 3 -I wlan0 10.229.175.120
-sudo ip addr add 10.229.175.166/32 dev wlan0      # attacker
-sudo ip addr add 10.229.175.120/32 dev wlan0      # dumb bulb
-python3 tools/hive_up.py node:lapB attacker@10.229.175.166 bulb@10.229.175.120 --gateway <laptop-ip>
+git clone https://github.com/prayag-1771/Hive-Immunity-System && cd Hive-Immunity-System
+sudo sh deploy/pi/install.sh          # venv + bleak, enables hive-pi.service
+journalctl -u hive-pi -f              # watch it
 ```
 
 ![Dashboard on real hardware: the ESP32 detected the attack with its 152-byte model, the Pi (Laptop B) sent the second report, the laptop adopted and blocked the attacker on its first packet, and the gateway isolated the bulb](docs/dashboard-hardware.png)
@@ -232,8 +270,9 @@ learning, press **Relearn**.
 - **Only two immune nodes** (e.g. the ESP32 and Laptop A): provision with `--quorum 1`, so
   one report is enough. Attacking the ESP32 then makes Laptop A immune straight away, and
   attacking Laptop A shows *blocked instantly*.
-- **Pi as the gateway:** Raspberry Pi OS (Bookworm) uses NetworkManager, so
-  `setup_hotspot.sh` and `guardian.py --nft` work there unchanged.
+- **Pi as the hotspot too:** Raspberry Pi OS (Bookworm and later) uses NetworkManager, so
+  `setup_hotspot.sh` works there unchanged. All traffic then passes through the Pi, so the
+  nftables quarantine also cuts the bulb off the internet.
 
 ### Troubleshooting
 
@@ -255,7 +294,7 @@ learning, press **Relearn**.
 - **A screen or proxy that breaks live updates:** open `http://<dashboard>:8080/?poll`,
   which polls instead of streaming.
 
-## Demo script (about 3 minutes)
+## Demo script (about 3–4 minutes)
 
 ![The seven demo steps on the one-laptop simulation](docs/demo.gif)
 
@@ -266,12 +305,21 @@ learning, press **Relearn**.
 | 3 | **Attack Laptop B** | Laptop B detects the attack and sends a second vaccine. Laptop A reaches quorum and turns **immune**. *Time to immunity* stops. |
 | 4 | **Attack Laptop A** | **BLOCKED INSTANTLY**: the first packet is dropped and no quarantine is needed. |
 | 5 | **Infect dumb bulb** | The gateway sees the bulb flooding and the bulb turns red: *isolated by the gateway*. |
-| 6 | **Attack the cure** | Forged, tampered, oversized, replayed, hub-targeting and spammed vaccines are all rejected, and the checklist lights up. |
-| 7 | **Reset** | Everything heals back to green without restarting. |
+| 6 | **Infect BLE bulb** | The Bluetooth bulb floods the ESP32's Bluetooth hub, gets *cut off by the Bluetooth hub*, and every reconnection is *refused*. |
+| 7 | **Attack the cure** | Forged, tampered, oversized, replayed, hub-targeting and spammed vaccines are all rejected, and the checklist lights up. |
+| 8 | **Reset** | Everything heals back to green without restarting. |
 
-Let a judge press the attack button. **Explain incident** asks a local open model
-(Gemma through Ollama, if it is running) to narrate what happened, and falls back to a
-template.
+Let a judge press the attack button. Keyboard: `1`–`3` attack, `b` dumb bulb, `t`
+Bluetooth bulb, `c` attack the cure, `r` reset, `e` explain.
+
+**Explain incident** asks Gemma 4 running locally through Ollama to narrate what happened
+in plain language, with no cloud involved. If no model is reachable, it falls back to a
+template sentence:
+
+```sh
+ollama pull gemma4:e2b-it-qat     # smallest Gemma 4 build (4.3 GB); runs on a laptop GPU or CPU
+ollama serve                      # the dashboard calls http://127.0.0.1:11434
+```
 
 ## Honest limits
 
@@ -284,28 +332,69 @@ template.
 - Wi-Fi clients on the same access point talk through the radio, not the router, so the
   gateway's firewall isolates a dumb device from the internet and the gateway, not from
   every neighbour.
-- Bluetooth-only and SIM-card devices are only partly covered (roadmap).
+- The Bluetooth hub identifies a device by its Bluetooth address, which a determined
+  attacker can spoof. Production would accept only bonded devices (LE Secure Connections).
+- In the demo the Bluetooth bulb connects to the hub. Many real bulbs work the other way
+  round (the hub connects to them); the watch-and-cut-off logic is the same.
+- Devices on cellular (SIM) connections never pass through the gateway, so they aren't
+  covered.
 
 ## Roadmap
 
-OpenWrt router package · Bluetooth hub enforcement · on-chip key generation and secure
-boot · federated improvement of the tiny model · neighbourhood-wide vaccine sharing between
-homes.
+OpenWrt router package · Bluetooth bonding-based identity · on-chip key generation and
+secure boot · federated improvement of the tiny model · neighbourhood-wide vaccine sharing
+between homes.
+
+## Built with (open source)
+
+- **Our code:** MIT. The tiny model's training code and weights are in the repo:
+  [tools/train_autoencoder.py](tools/train_autoencoder.py),
+  [agent/model.json](agent/model.json) and
+  [firmware/hive_node/model.h](firmware/hive_node/model.h).
+- **Laptops and Pi:** Python 3 standard library only. The Bluetooth bulb uses **bleak** (MIT).
+- **ESP32:** **Arduino-ESP32** core (LGPL-2.1) on **ESP-IDF** (Apache-2.0), including
+  **FreeRTOS** (MIT), **lwIP** (BSD-3), **Mbed TLS** (Apache-2.0) for HMAC-SHA256, and
+  **Bluedroid** (Apache-2.0) for Bluetooth. Messages are handled with **ArduinoJson**
+  (MIT).
+- **Gateway:** Linux, **nftables** and **NetworkManager** (GPL-2.0), on Raspberry Pi OS.
+- **AI:** our own 152-byte autoencoder (trained with **numpy**, BSD-3), plus **Gemma 4**
+  (open weights, Gemma terms) through **Ollama** (MIT) for incident explanations.
+- **Tooling:** pytest, OpenSSL, GCC, arduino-cli, esptool, GitHub Actions.
+
+## Acceptance checklist (from the build brief)
+
+Verified on real hardware: one Windows laptop, one Raspberry Pi 5 and one ESP32 DevKit,
+on a phone hotspot.
+
+- [x] Python nodes run and turn healthy after learning
+- [x] The ESP32 boots, joins the hotspot, appears on the dashboard, learns, turns healthy; its LED shows its state
+- [x] Attacking the ESP32 → quarantine and a vaccine within about 2 s (measured about 1.5 s)
+- [x] Attacking Laptop B → quorum → Laptop A adopts; time to immunity shown (about 6 s)
+- [x] Attacking Laptop A → first packet blocked, no quarantine
+- [x] Forged, oversized, flood and single-report vaccines rejected with visible reasons
+- [x] Dumb bulb infection → gateway quarantine
+- [x] Reset returns everything to green without restarting devices
+- [x] README, LICENSE, public repo, CI
+- [ ] Works with no internet at all: needs one run with the phone's mobile data switched off
+- [ ] Backup video: record the dashboard and the ESP32's LED once the setup is final
 
 ## Repository layout
 
 ```
-agent/        hive_core.py (shared logic), hive_agent.py (laptop node), hub.py, model.json
-firmware/     hive_node/ (ESP32 sketch, signing, model.h), test/ (PC harness + mocks)
+agent/        hive_core.py (shared logic), hive_agent.py (laptop node), hub.py, hive_net.py, model.json
+firmware/     hive_node/ (ESP32 sketch, ble_hub.h, hive_sign.h, model.h), test/ (PC harness + mocks)
 dashboard/    server.py (stdlib HTTP + SSE), index.html (offline, no CDN)
 gateway/      guardian.py, setup_hotspot.sh, nft_rules.nft
-tools/        provision_keys.py, run_local.py, scenarios.py, dumb_device.py, train_autoencoder.py
-tests/        pytest: HMAC vector, vaccine pipeline, detection
+tools/        hive_up.py, run_local.py, provision_keys.py, scenarios.py, dumb_device.py,
+              ble_bulb.py, train_autoencoder.py
+deploy/       pi/ (hive-pi service + installer), windows/ (Laptop A starter)
+tests/        pytest: signing vectors, vaccine pipeline, detection, dashboard, network guard
 ```
 
 Safety: every "attack" is a simulation aimed at our own devices on our own private
-hotspot. The dumb-bulb simulator only names addresses from 198.18.0.0/15 (reserved for
-benchmarking, never routed) inside its messages, and sends them only to the gateway.
+hotspot, and the code refuses to send anything outside the local network. The dumb-bulb
+simulator only names addresses from 198.18.0.0/15 (reserved for benchmarking, never
+routed) inside its messages, and sends them only to the gateway.
 
 ## Sources
 
