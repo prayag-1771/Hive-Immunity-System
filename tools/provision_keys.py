@@ -159,6 +159,8 @@ def main():
     ap.add_argument("--password", default="change-me-please")
     ap.add_argument("--led-pin", type=int, default=2)
     ap.add_argument("--led-active-low", action="store_true")
+    ap.add_argument("--quorum", type=int, help="distinct issuers needed to adopt a vaccine "
+                                                "(default 2; use 1 with only two immune nodes)")
     ap.add_argument("--rotate", action="store_true", help="generate fresh keys for everyone")
     args = ap.parse_args()
 
@@ -168,6 +170,8 @@ def main():
         with open(NODES_JSON, "r", encoding="utf-8") as f:
             old = json.load(f)
     cfg = build(old, specs, args.rotate)
+    if args.quorum is not None:
+        cfg["quorum"] = max(1, args.quorum)
     write_json(NODES_JSON, cfg)
     write_json(LOCAL_JSON, localize(cfg))
     print(f"wrote {os.path.relpath(NODES_JSON, ROOT)} and {os.path.relpath(LOCAL_JSON, ROOT)}"

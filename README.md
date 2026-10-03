@@ -193,6 +193,17 @@ sh firmware/test/run_host_test.sh      # ESP32 firmware on a PC (Linux/WSL, need
 
 Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip learning.
 
+### Smaller setups
+
+- **No third laptop:** the Raspberry Pi takes the attacker and dumb-bulb roles. The
+  attacker must not share an address with the hub or a node, so it can't run on Laptop A
+  or Laptop B.
+- **Only two immune nodes** (e.g. the ESP32 and Laptop A): provision with `--quorum 1`, so
+  one report is enough. Attacking the ESP32 then makes Laptop A immune straight away, and
+  attacking Laptop A shows *blocked instantly*.
+- **Pi as the gateway:** Raspberry Pi OS (Bookworm) uses NetworkManager, so
+  `setup_hotspot.sh` and `guardian.py --nft` work there unchanged.
+
 ### Troubleshooting
 
 - **A Windows laptop never shows up, or is stuck on "waiting for hub":** the Windows
