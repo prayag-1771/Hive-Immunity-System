@@ -16,7 +16,11 @@ if [ ! -f "$AJ/ArduinoJson.h" ]; then
     echo "skipping firmware harness: ArduinoJson not found at $AJ (set ARDUINOJSON_SRC)"
     exit 0
 fi
-g++ -std=c++17 -Wall -Wextra -Wno-unused-function -DHIVE_HOST_TEST \
-    -I "$HERE/mock" -I "$HERE" -I "$AJ" \
-    -o "$OUT/hive_test_firmware" "$HERE/test_firmware.cpp" -lcrypto
-"$OUT/hive_test_firmware"
+# Once with whatever model.h ships (the autoencoder if trained), once forcing z-scores.
+for DET in "" "-DHAVE_AE_MODEL=0"; do
+    echo "firmware harness ${DET:-(model.h as shipped)}"
+    g++ -std=c++17 -Wall -Wextra -Wno-unused-function -DHIVE_HOST_TEST $DET \
+        -I "$HERE/mock" -I "$HERE" -I "$AJ" \
+        -o "$OUT/hive_test_firmware" "$HERE/test_firmware.cpp" -lcrypto
+    "$OUT/hive_test_firmware"
+done

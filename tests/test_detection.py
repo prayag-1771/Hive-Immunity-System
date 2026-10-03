@@ -176,5 +176,39 @@ class Detection(unittest.TestCase):
         self.assertLess(len(hc.encode(s.node.status(s.t, 1.7e9))), 1024)
 
 
+MODEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent", "model.json")
+
+
+@unittest.skipUnless(os.path.exists(MODEL), "no trained model (tools/train_autoencoder.py)")
+class ShippedAutoencoder(unittest.TestCase):
+    """The committed agent/model.json must behave at least as well as the z-score detector."""
+
+    def sim(self, seed):
+        s = Sim()
+        s.rng.seed(seed)
+        s.node.detector = hc.AutoencoderDetector.load(MODEL)
+        s.run(12)
+        self.assertEqual(s.node.state, "healthy")
+        s.kinds()
+        return s
+
+    def test_no_false_alarms_over_ten_minutes(self):
+        for seed in range(5):
+            s = self.sim(seed)
+            s.run(600)
+            self.assertNotIn("quarantine", s.kinds()[0], f"seed {seed}")
+
+    def test_detects_attack_within_about_two_windows(self):
+        s = self.sim(11)
+        start = s.t
+        while s.node.state != "quarantined" and s.t - start < 5:
+            s.run(0.05, attack_rate=50)
+        self.assertLessEqual(s.t - start, 2.2)
+        self.assertTrue(s.node.is_blocked(ATTACKER, s.t))
+
+    def test_model_is_tiny(self):
+        self.assertLessEqual(hc.AutoencoderDetector.load(MODEL).size_bytes, 256)
+
+
 if __name__ == "__main__":
     unittest.main()

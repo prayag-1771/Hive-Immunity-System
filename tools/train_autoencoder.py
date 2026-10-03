@@ -4,6 +4,12 @@ Input: the per-window z-scores every node logs while healthy (data/windows/*.jso
 "how far is this second from what this device learned as normal". The autoencoder learns
 to reconstruct normal windows; anything it cannot reconstruct is anomalous.
 
+Real normal traffic only varies in one or two features, so a model trained on it alone
+would alarm on the first harmless wobble. Training therefore also includes "broadened
+normal": real windows with one feature pushed anywhere up to |z| = 4.5, which the
+z-score detector would also call normal. Export is refused unless the model stays quiet
+on those and still flags attack-shaped windows by a clear margin.
+
 Exports the same weights twice:
   agent/model.json             used by the Python agents (--detector auto|autoencoder)
   firmware/hive_node/model.h   compiled into the ESP32 (HAVE_AE_MODEL 1)
@@ -25,6 +31,8 @@ MODEL_JSON = os.path.join(ROOT, "agent", "model.json")
 MODEL_H = os.path.join(ROOT, "firmware", "hive_node", "model.h")
 NF = 5
 CLIP = 20.0
+BROADEN_Z = 4.5      # single-feature excursions treated as normal during training
+QUIET_Z = 4.0        # the exported model must not alarm on these
 
 
 def load_windows(pattern):
@@ -39,6 +47,33 @@ def load_windows(pattern):
                 if len(z) == NF:
                     rows.append(z)
     return np.clip(np.array(rows, dtype=np.float64), -CLIP, CLIP)
+
+
+def broaden(x, copies, rng):
+    """Real windows plus copies with one random feature moved to U(-4.5, 4.5).
+
+    Ratios (unknown / malformed senders) cannot go below their normal of 0, so their
+    excursions are one-sided.
+    """
+    out = [x]
+    for _ in range(copies):
+        a = x[rng.integers(0, len(x), len(x))].copy()
+        dims = rng.integers(0, NF, len(a))
+        low = np.where(np.isin(dims, [2, 3]), 0.0, -BROADEN_Z)
+        a[np.arange(len(a)), dims] = rng.uniform(low, BROADEN_Z)
+        out.append(a)
+    return np.clip(np.vstack(out), -CLIP, CLIP)
+
+
+def excursions(z):
+    """One feature at +/- z, the rest at their mean."""
+    rows = []
+    for d in range(NF):
+        for sign in ((1,) if d in (2, 3) else (1, -1)):
+            r = np.zeros(NF)
+            r[d] = sign * z
+            rows.append(r)
+    return np.array(rows)
 
 
 def forward(p, x):
@@ -96,8 +131,9 @@ def main():
     ap.add_argument("--hidden", type=int, default=3)
     ap.add_argument("--epochs", type=int, default=3000)
     ap.add_argument("--lr", type=float, default=0.01)
-    ap.add_argument("--margin", type=float, default=3.0,
-                    help="threshold = margin x the 99.9th percentile of held-out normal error")
+    ap.add_argument("--margin", type=float, default=1.5,
+                    help="threshold = margin x the 99.9th percentile of held-out (broadened) normal error")
+    ap.add_argument("--copies", type=int, default=3, help="broadened copies of the real data")
     ap.add_argument("--seed", type=int, default=1)
     args = ap.parse_args()
 
@@ -108,37 +144,51 @@ def main():
     rng = np.random.default_rng(args.seed)
     idx = rng.permutation(len(x))
     split = int(len(x) * 0.8)
-    train_x, held_x = x[idx[:split]], x[idx[split:]]
+    real_train, real_held = x[idx[:split]], x[idx[split:]]
+    train_x = broaden(real_train, args.copies, rng)
+    held_x = broaden(real_held, args.copies, rng)
 
     p = train(train_x, args.hidden, args.epochs, args.lr, args.seed)
-    err_train, err_held = rmse(p, train_x), rmse(p, held_x)
+    p = {k: np.where(np.abs(v) < 1e-9, 0.0, v) for k, v in p.items()}   # no sub-float-range constants
+    err_held, err_real = rmse(p, held_x), rmse(p, real_held)
     threshold = float(max(np.percentile(err_held, 99.9) * args.margin, 0.5))
+    err_quiet = rmse(p, excursions(QUIET_Z))
     err_attack = rmse(p, attack_like())
-    false_alarm_rate = float(np.mean(err_held > threshold))
+    fires_at = min(next((z for z in np.arange(0.5, CLIP + 0.01, 0.25) if rmse(p, excursions(z)[i:i + 1])[0] > threshold),
+                        CLIP) for i in range(len(excursions(1))))
     size = 4 * sum(v.size for v in p.values())
 
-    print(f"windows: {len(train_x)} train / {len(held_x)} held-out")
-    print(f"normal error  : median {np.median(err_held):.3f}, p99.9 {np.percentile(err_held, 99.9):.3f}")
-    print(f"threshold     : {threshold:.3f}  (held-out false alarms {false_alarm_rate:.2%})")
+    print(f"windows       : {len(real_train)} real train ({len(train_x)} with broadening) / {len(real_held)} real held-out")
+    print(f"normal error  : real median {np.median(err_real):.3f}, real max {err_real.max():.3f}, "
+          f"broadened p99.9 {np.percentile(err_held, 99.9):.3f}")
+    print(f"threshold     : {threshold:.3f}  (held-out real false alarms {np.mean(err_real > threshold):.2%})")
+    print(f"quiet check   : single feature at |z|={QUIET_Z:g} scores at most {err_quiet.max():.2f}; "
+          f"a single feature fires from |z|~{fires_at:.2f}")
     print(f"attack windows: {', '.join(f'{e:.2f}' for e in err_attack)}"
           f"  -> min {err_attack.min() / threshold:.1f}x threshold")
     print(f"model size    : {size} bytes of weights ({NF}->{args.hidden}->{NF})")
-    if err_attack.min() <= threshold:
-        raise SystemExit("an attack window falls under the threshold: not exporting (try --margin lower)")
+    if err_real.max() > threshold or err_quiet.max() > threshold:
+        raise SystemExit("the model alarms on normal-looking windows: not exporting")
+    if err_attack.min() <= 1.5 * threshold:
+        raise SystemExit("attack windows are too close to the threshold: not exporting")
 
     model = {k: v.tolist() for k, v in p.items()}
     model.update(threshold=round(threshold, 4), clip=CLIP, hidden=args.hidden,
-                 trained_on=len(train_x), created=time.strftime("%Y-%m-%d"))
+                 trained_on=len(real_train), created=time.strftime("%Y-%m-%d"))
     with open(MODEL_JSON, "w", encoding="utf-8", newline="\n") as f:
         json.dump(model, f, indent=1)
         f.write("\n")
 
     header = [
         "// GENERATED by tools/train_autoencoder.py -- tiny autoencoder for the on-chip detector.",
-        f"// {NF}->{args.hidden}->{NF}, tanh hidden layer, trained on {len(train_x)} normal windows"
+        f"// {NF}->{args.hidden}->{NF}, tanh hidden layer, trained on {len(real_train)} normal windows"
         f" ({time.strftime('%Y-%m-%d')}); {size} bytes of weights.",
+        "// Build with -DHAVE_AE_MODEL=0 (or #define it before including) to fall back to z-scores.",
         "#pragma once",
+        "#ifndef HAVE_AE_MODEL",
         "#define HAVE_AE_MODEL 1",
+        "#endif",
+        "#if HAVE_AE_MODEL",
         f"#define AE_HIDDEN {args.hidden}",
         f"static const float AE_THRESHOLD = {threshold:.6g}f;",
         f"static const float AE_CLIP = {CLIP:.1f}f;",
@@ -146,6 +196,7 @@ def main():
         c_array("AE_B1", p["b1"]),
         c_array("AE_W2", p["w2"]),
         c_array("AE_B2", p["b2"]),
+        "#endif",
         "",
     ]
     with open(MODEL_H, "w", encoding="utf-8", newline="\n") as f:
