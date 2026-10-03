@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    name: Python core, dashboard and model tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest -q tests
+
+  firmware-host:
+    name: ESP32 firmware on a PC (mocked Wi-Fi/UDP/NVS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - run: git clone --depth 1 --branch v7.4.3 https://github.com/bblanchon/ArduinoJson.git "$RUNNER_TEMP/ArduinoJson"
+      - run: ARDUINOJSON_SRC="$RUNNER_TEMP/ArduinoJson/src" sh firmware/test/run_host_test.sh
+
+  firmware-esp32:
+    name: ESP32 firmware compiles for the real board
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Throwaway keys and secrets.h for the compile
+        run: python tools/provision_keys.py
+      - uses: arduino/setup-arduino-cli@v2
+      - run: arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - run: arduino-cli lib install ArduinoJson
+      - run: arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default firmware/hive_node
