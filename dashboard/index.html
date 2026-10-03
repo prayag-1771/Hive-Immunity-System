@@ -39,8 +39,8 @@
   .tile.hit { animation: hit .6s; }
   @keyframes throb { from { box-shadow: 0 0 10px rgba(239,68,68,.3); } to { box-shadow: 0 0 30px rgba(239,68,68,.7); } }
   @keyframes hit { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
-  .t-head { display: flex; align-items: baseline; gap: 10px; }
-  .t-name { font-size: 26px; font-weight: 700; }
+  .t-head { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; }
+  .t-name { font-size: 26px; font-weight: 700; white-space: nowrap; }
   .t-ip { color: var(--muted); font-size: 13px; margin-left: auto; font-family: Consolas, monospace; }
   .t-kind { color: var(--muted); font-size: 14px; margin: 2px 0 10px; }
   .pill { display: inline-block; padding: 4px 12px; border-radius: 8px; font-weight: 800; font-size: 17px; letter-spacing: .05em; }

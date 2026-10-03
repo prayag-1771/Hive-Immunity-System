@@ -91,7 +91,7 @@ class Agent:
         ip = self.dash_ip or self.node.hub_ip
         if ip:
             return [(ip, self.status_port)]
-        return [(b, self.status_port) for b in self.bcast]
+        return [(b, self.status_port) for b in self.bcast[:1]]  # one copy until the hub is known
 
     def _flush(self, now):
         events, vaccines = self.node.drain()

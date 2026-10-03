@@ -68,6 +68,12 @@ class DashboardState(unittest.TestCase):
         self.event("lapA", "blocked_first_packet", "", ATT, ts=4.0)
         self.assertEqual(self.d.snapshot()["immunity"]["instant"], {"lapA": 4.0})
 
+    def test_duplicate_event_copies_are_dropped(self):
+        self.event("gateway", "quarantine", "bulb isolated", "10.0.0.20", ts=10.0)
+        self.event("gateway", "quarantine", "bulb isolated", "10.0.0.20", ts=10.05)
+        self.event("gateway", "quarantine", "bulb isolated", "10.0.0.20", ts=20.0)
+        self.assertEqual(sum(e["kind"] == "quarantine" for e in self.d.events), 2)
+
     def test_sender_clock_is_ignored(self):
         self.event("attacker", "attack_started", "", ATT, ts=500.0)
         self.assertEqual(self.d.snapshot()["immunity"]["t0"], 500.0)

@@ -67,6 +67,7 @@ class Dashboard:
         # Every event is stamped with the dashboard's own clock on arrival: devices' clocks
         # can disagree (an offline Pi has no battery-backed clock, the ESP32 has none).
         self.clock = time.time
+        self.last_event_key, self.last_event_at = None, 0.0
         self._reset_immunity()
 
     # -- immunity timer
@@ -138,6 +139,10 @@ class Dashboard:
             elif t == "hello" and msg.get("role") in self.peers:
                 self.peers[msg["role"]].update(ip=ip, seen=now, busy=bool(msg.get("busy")))
             elif t == "event" and isinstance(msg.get("kind"), str):
+                key = (msg.get("node"), msg["kind"], msg.get("detail"))
+                if key == self.last_event_key and self.clock() - self.last_event_at < 0.3:
+                    return  # the same event delivered twice (e.g. two broadcast forms)
+                self.last_event_key, self.last_event_at = key, self.clock()
                 ev = {"node": str(msg.get("node", "?")), "kind": msg["kind"],
                       "detail": str(msg.get("detail", ""))[:200], "ts": self.clock(),
                       "target": msg.get("target")}

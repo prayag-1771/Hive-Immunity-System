@@ -91,8 +91,10 @@ class Guardian:
         print(f"{time.strftime('%H:%M:%S')} [gateway] {text}", flush=True)
 
     def _to_dashboard(self, msg):
+        # One copy: the dashboard's address once known (learned from its signed control
+        # messages), else a single broadcast form, so the dashboard never logs duplicates.
         port = self.cfg["network"]["status_port"]
-        for ip in ([self.dash] if self.dash else self.bcast):
+        for ip in ([self.dash] if self.dash else self.bcast[:1]):
             net.send(self.sock, msg, (ip, port))
 
     def event(self, kind, detail, target=None):
@@ -156,6 +158,7 @@ class Guardian:
         if m["t"] == "ctrl":
             if hc.valid_ctrl(m) and m["seq"] > self.last_ctrl and hc.verify(self.cfg["admin_key"], m):
                 self.last_ctrl = m["seq"]
+                self.dash = self.dash or ip
                 self.reset(relearn=m["cmd"] == "relearn")
             return
         if m["t"] != "tele":
