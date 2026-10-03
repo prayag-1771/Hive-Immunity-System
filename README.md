@@ -176,14 +176,15 @@ sh firmware/test/run_host_test.sh      # ESP32 firmware on a PC (Linux/WSL, need
 2. **Keys:** `python tools/provision_keys.py --ssid HiveNet --password <password> --led-pin 2`,
    then copy `config/nodes.json` to every laptop (the keys are the same everywhere).
 3. **ESP32:** open `firmware/hive_node/hive_node.ino` in Arduino IDE (ESP32 core 3.x,
-   ArduinoJson 7) or use arduino-cli, then flash it. Its LED blinks slowly while learning,
+   ArduinoJson 7, *Tools → Partition Scheme → Huge APP*, because Wi-Fi plus the Bluetooth hub
+   needs more than the default 1.3 MB) or use arduino-cli, then flash it. Its LED blinks slowly while learning,
    follows the hub's light commands when healthy, and blinks fast when quarantined.
 
    ```sh
    arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
    arduino-cli lib install ArduinoJson
-   arduino-cli compile --fqbn esp32:esp32:esp32 firmware/hive_node
-   arduino-cli upload  --fqbn esp32:esp32:esp32 -p COM5 firmware/hive_node   # or /dev/ttyUSB0
+   arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app firmware/hive_node
+   arduino-cli upload  --fqbn esp32:esp32:esp32:PartitionScheme=huge_app -p COM5 firmware/hive_node   # or /dev/ttyUSB0
    arduino-cli monitor -p COM5 -c baudrate=115200
    ```
 4. **Start the roles:**
@@ -248,7 +249,7 @@ learning, press **Relearn**.
   charge-only cable.
 - **Upload or read fails part-way ("packet content transfer stopped"):** the USB link
   can't hold 921600 baud. Flash at a lower speed:
-  `arduino-cli upload --fqbn esp32:esp32:esp32:UploadSpeed=115200 -p COM3 firmware/hive_node`.
+  `arduino-cli upload --fqbn esp32:esp32:esp32:PartitionScheme=huge_app,UploadSpeed=115200 -p COM3 firmware/hive_node`.
 - **False alarms after moving to a new network:** press **Relearn** (or type `r` on the
   ESP32's serial monitor) so every node learns the new normal.
 - **A screen or proxy that breaks live updates:** open `http://<dashboard>:8080/?poll`,
