@@ -15,6 +15,7 @@ Roles:
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -69,6 +70,8 @@ def main():
         running.append((name, p))
         threading.Thread(target=pump, args=(name, p, width), daemon=True).start()
     print(f"started: {', '.join(n for n, _ in procs)}  (Ctrl+C stops all)", flush=True)
+    # SIGTERM (pkill, systemd) behaves like Ctrl+C, so the children are stopped too.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         while running:
             for name, p in list(running):

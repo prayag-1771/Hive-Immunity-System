@@ -10,6 +10,7 @@ Ctrl+C stops everything.
 
 import argparse
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,8 @@ def main():
     print(f"\n  Hive local demo: http://localhost:{port}   (Ctrl+C to stop)\n", flush=True)
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+    # SIGTERM (pkill, systemd) behaves like Ctrl+C, so the children are stopped too.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         while True:
             for name, p in running:
