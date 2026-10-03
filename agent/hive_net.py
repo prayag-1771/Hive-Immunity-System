@@ -65,8 +65,12 @@ def send(sock, msg, addr):
         pass  # unreachable peers must never take the sender down
 
 
-def recv_all(sock, bufsize=2048):
-    """Drain a non-blocking socket. Yields (data, ip)."""
+def recv_all(sock, bufsize=65536):
+    """Drain a non-blocking socket. Yields (data, ip).
+
+    The buffer fits any UDP datagram, so oversized packets arrive whole and are rejected
+    by the size checks (a smaller buffer raises WinError 10040 on Windows).
+    """
     while True:
         try:
             data, addr = sock.recvfrom(bufsize)

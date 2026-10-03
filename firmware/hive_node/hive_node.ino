@@ -798,6 +798,10 @@ static void readPackets(WiFiUDP& udp, bool vax, uint32_t now) {
     int len = udp.read(rxBuf, MAX_MSG);
     if (len < 0) len = 0;
     rxBuf[len] = 0;
+    // Drop whatever is left of an oversized datagram. The core's parsePacket() returns 0
+    // while any of the previous packet is unread, so one 600-byte packet would otherwise
+    // deafen this port for good (found on real hardware; covered by test_firmware.cpp).
+    udp.clear();
     if (vax) onVax(ip, rxBuf, len, size, now);
     else onData(ip, rxBuf, len, size, now);
   }

@@ -178,7 +178,7 @@ def serve(cfg, bind=None):
             to_dashboard({"v": 1, "t": "hello", "role": "attacker", "ip": attacker.my_ip,
                           "busy": bool(worker and worker.is_alive())})
         select.select([sock], [], [], 0.5)
-        for data, ip in net.recv_all(sock, 4096):
+        for data, ip in net.recv_all(sock):
             try:
                 m = json.loads(data)
             except ValueError:

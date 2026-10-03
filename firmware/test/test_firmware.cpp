@@ -43,6 +43,8 @@ static std::string hubCmd(const char* cmd = "ping") {
 }
 
 static std::string junk() {
+  static int k = 0;
+  if (++k % 4 == 0) return std::string(600, 'A');  // like tools/scenarios.py: some oversized
   std::string s;
   int n = 20 + rng() % 80;
   for (int i = 0; i < n; i++) s += (char)(rng() % 256);
@@ -167,6 +169,22 @@ int main() {
   CHECK(st["state"] == "healthy");
   CHECK(st["kind"] == "esp32");
   CHECK(st["ip"] == "10.0.0.2");
+  g_sent.clear();
+
+  // 2b. Oversized datagrams (bigger than the read buffer) must not deafen either port.
+  //     Found on real hardware: the ESP32 core delivers nothing more until the rest of a
+  //     partly read packet is discarded.
+  inject(DATA_PORT, IPAddress(10, 0, 0, 50), std::string(1400, 'B'));
+  inject(VAX_PORT, IPAddress(10, 0, 0, 50), std::string(1400, 'B'));
+  run(3000);
+  CHECK(features[0] > 0.5f);  // hub traffic still counted after the oversized packet
+  inject(VAX_PORT, LAPB, signedVax("lapB", KEY_LAPB, 900, "10.0.0.88"));
+  run(20);
+  CHECK(has(drainEvents(), "vax_pending", "10.0.0.88 pending 1/2"));
+  CHECK(state == HEALTHY);
+  memset(pending, 0, sizeof pending);
+  issuers[findIssuer("lapB")].hasSeq = false;  // later steps reuse lapB's low sequence numbers
+  issuers[findIssuer("lapB")].ntimes = 0;
   g_sent.clear();
 
   // 3. Attack: quarantine + block + one signed vaccine within ~2 windows.

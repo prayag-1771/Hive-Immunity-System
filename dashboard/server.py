@@ -109,7 +109,7 @@ class Dashboard:
     def listen(self):
         while True:
             select.select([self.sock], [], [], 0.5)
-            for data, ip in net.recv_all(self.sock, 4096):
+            for data, ip in net.recv_all(self.sock):
                 try:
                     msg = json.loads(data)
                 except ValueError:
