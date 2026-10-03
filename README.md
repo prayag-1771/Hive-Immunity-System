@@ -213,6 +213,14 @@ Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip lear
   set the hotspot network's profile to Private.
 - **The ESP32 doesn't appear:** it only joins 2.4 GHz Wi-Fi. Open the serial monitor at
   115200 baud: it prints its IP address, and typing `s` prints its state.
+- **No COM port when the ESP32 is plugged in:** Device Manager shows "CP2102 USB to UART
+  Bridge Controller" with error 28, so the USB-serial driver is missing. Install Silicon
+  Labs' CP210x driver; the same WHQL-signed package is on the Microsoft Update Catalog
+  (search `VID_10C4&PID_EA60`). A board that shows nothing at all usually has a
+  charge-only cable.
+- **Upload or read fails part-way ("packet content transfer stopped"):** the USB link
+  can't hold 921600 baud. Flash at a lower speed:
+  `arduino-cli upload --fqbn esp32:esp32:esp32:UploadSpeed=115200 -p COM3 firmware/hive_node`.
 - **False alarms after moving to a new network:** press **Relearn** (or type `r` on the
   ESP32's serial monitor) so every node learns the new normal.
 - **A screen or proxy that breaks live updates:** open `http://<dashboard>:8080/?poll`,
