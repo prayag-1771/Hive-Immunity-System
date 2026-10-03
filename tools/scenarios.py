@@ -68,8 +68,13 @@ class Attacker:
         return self._rogue_seq
 
     def _send_vax(self, raw, peers):
+        """One copy per node: unicast to the known nodes, broadcast only if none are known.
+
+        Nodes silently drop a second copy of a *valid* vaccine, but every copy of a bad one
+        is rejected (and counted) again, so sending both would inflate the counters.
+        """
         port = self.cfg["network"]["vax_port"]
-        for ip in net.broadcast_targets(self.cfg, self.my_ip) + list(peers):
+        for ip in list(peers) or net.broadcast_targets(self.cfg, self.my_ip)[:1]:
             net.send(self.sock, raw, (ip, port))
 
     def _junk(self, i):
