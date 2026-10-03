@@ -211,10 +211,11 @@ class Window:
 class Baseline:
     """Per-feature running mean/std (Welford) plus the senders seen while learning."""
 
-    def __init__(self):
+    def __init__(self, floors=STD_FLOOR):
+        self.floors = tuple(floors)
         self.n = 0
-        self.mean = [0.0] * N_FEATURES
-        self.m2 = [0.0] * N_FEATURES
+        self.mean = [0.0] * len(self.floors)
+        self.m2 = [0.0] * len(self.floors)
         self.known = set()
 
     def add(self, f):
@@ -226,21 +227,22 @@ class Baseline:
 
     def std(self):
         out = []
-        for i in range(N_FEATURES):
+        for i, floor in enumerate(self.floors):
             s = math.sqrt(self.m2[i] / (self.n - 1)) if self.n > 1 else 0.0
-            out.append(max(s, STD_FLOOR[i]))
+            out.append(max(s, floor))
         return out
 
     def z(self, f):
         sd = self.std()
-        return [(f[i] - self.mean[i]) / sd[i] for i in range(N_FEATURES)]
+        return [(f[i] - self.mean[i]) / sd[i] for i in range(len(sd))]
 
     def to_dict(self):
-        return {"n": self.n, "mean": self.mean, "m2": self.m2, "known": sorted(self.known)}
+        return {"n": self.n, "mean": self.mean, "m2": self.m2, "known": sorted(self.known),
+                "floors": list(self.floors)}
 
     @classmethod
     def from_dict(cls, d):
-        b = cls()
+        b = cls(d.get("floors", STD_FLOOR))
         b.n, b.mean, b.m2, b.known = d["n"], list(d["mean"]), list(d["m2"]), set(d["known"])
         return b
 
@@ -342,8 +344,8 @@ class HiveNode:
         self.vax_adopted = 0
         self.vax_rejected = 0
 
-    def _event(self, kind, detail, now):
-        self.events.append({"kind": kind, "detail": detail, "mono": now})
+    def _event(self, kind, detail, now, target=None):
+        self.events.append({"kind": kind, "detail": detail, "mono": now, "target": target})
 
     def _trusted(self, ip):
         return ip == self.hub_ip or (self.baseline is not None and ip in self.baseline.known)
@@ -373,7 +375,7 @@ class HiveNode:
             self.blocked += 1
             if ip not in self.blocked_logged:
                 self.blocked_logged.add(ip)
-                self._event("blocked_first_packet", f"dropped first packet from {ip} (immune)", now)
+                self._event("blocked_first_packet", f"dropped first packet from {ip} (immune)", now, ip)
             return None
 
         msg = parse(raw)
@@ -485,7 +487,7 @@ class HiveNode:
 
         if self.is_blocked(target, now):
             self.blocklist[target] = max(self.blocklist[target], now + m["ttl"])
-            self._event("vax_pending", f"{target} already blocked (confirmed by {issuer})", now)
+            self._event("vax_pending", f"{target} already blocked (confirmed by {issuer})", now, target)
             return
         votes = self.pending.setdefault(target, {})
         votes[issuer] = now
@@ -493,9 +495,9 @@ class HiveNode:
             who = ", ".join(sorted(votes))
             self._block(target, m["ttl"], now)
             self.vax_adopted += 1
-            self._event("vax_adopted", f"immune to {target} (reports from {who})", now)
+            self._event("vax_adopted", f"immune to {target} (reports from {who})", now, target)
         else:
-            self._event("vax_pending", f"{target} pending {len(votes)}/{self.quorum} (from {issuer})", now)
+            self._event("vax_pending", f"{target} pending {len(votes)}/{self.quorum} (from {issuer})", now, target)
 
     # -- time
 
@@ -503,7 +505,7 @@ class HiveNode:
         for ip in [ip for ip, exp in self.blocklist.items() if exp <= now]:
             del self.blocklist[ip]
             self.blocked_logged.discard(ip)
-            self._event("unblock", f"block on {ip} expired", now)
+            self._event("unblock", f"block on {ip} expired", now, ip)
         horizon = now - self.demo["pending_s"]
         for target in list(self.pending):
             votes = {i: t for i, t in self.pending[target].items() if t > horizon}
@@ -579,7 +581,7 @@ class HiveNode:
             self.state = "quarantined"
             self.calm_since = None
             self._event("quarantine", f"score {self.score:.1f} > {self.detector.threshold:g}; "
-                                      f"culprit {culprit or 'unknown'}", now)
+                                      f"culprit {culprit or 'unknown'}", now, culprit)
         if culprit is None:
             return
         ttl = int(self.demo["vax_ttl_s"])
@@ -589,7 +591,7 @@ class HiveNode:
         reason = self._reason()
         self.outbox.append(make_vax(self.node_id, self.key, self.vax_seq, culprit, ttl, reason))
         self.vax_issued += 1
-        self._event("vax_issued", f"block {culprit} ({reason}), seq {self.vax_seq}", now)
+        self._event("vax_issued", f"block {culprit} ({reason}), seq {self.vax_seq}", now, culprit)
 
     # -- reporting
 

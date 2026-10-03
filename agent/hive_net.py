@@ -1,0 +1,78 @@
+"""Small UDP helpers shared by the agent, hub, dashboard, gateway and scenario tools."""
+
+import json
+import os
+import socket
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_CONFIG = os.path.join(ROOT, "config", "nodes.json")
+
+
+def udp_socket(bind_ip="0.0.0.0", port=0, broadcast=False, blocking=False):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if broadcast:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.bind((bind_ip or "0.0.0.0", port))
+    s.setblocking(blocking)
+    return s
+
+
+def guess_lan_ip(probe="10.255.255.255"):
+    """The address our default route would use. No packet is sent."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((probe, 1))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def broadcast_targets(cfg, my_ip):
+    """Where broadcasts go. 'auto' = this /24's directed broadcast plus 255.255.255.255.
+
+    Sending both is safe: receivers silently drop an identical copy of a vaccine. The
+    directed form matters on Windows, where 255.255.255.255 may leave on the wrong NIC.
+    """
+    b = cfg["network"].get("broadcast")
+    if not b:
+        return []
+    if b != "auto":
+        return [b]
+    out = ["255.255.255.255"]
+    if my_ip and not my_ip.startswith("127.") and my_ip != "0.0.0.0":
+        out.insert(0, my_ip.rsplit(".", 1)[0] + ".255")
+    return out
+
+
+def peer_ips(cfg, exclude=()):
+    """Static IPs of every vaccine-capable peer listed in the config."""
+    out = []
+    for e in cfg["nodes"]:
+        ip = e.get("ip")
+        if ip and ip != "auto" and ip not in exclude and ip not in out:
+            out.append(ip)
+    return out
+
+
+def send(sock, msg, addr):
+    data = msg if isinstance(msg, bytes) else json.dumps(msg, separators=(",", ":")).encode()
+    try:
+        sock.sendto(data, addr)
+    except OSError:
+        pass  # unreachable peers must never take the sender down
+
+
+def recv_all(sock, bufsize=2048):
+    """Drain a non-blocking socket. Yields (data, ip)."""
+    while True:
+        try:
+            data, addr = sock.recvfrom(bufsize)
+        except (BlockingIOError, InterruptedError):
+            return
+        except ConnectionResetError:
+            # Windows reports an ICMP "port unreachable" for an earlier sendto() here.
+            continue
+        yield data, addr[0]
