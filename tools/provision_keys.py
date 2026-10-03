@@ -97,7 +97,14 @@ def c_str(s):
     return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def secrets_header(cfg, node_id, ssid, password, led_pin, led_active_low):
+ESP32_DEFAULTS = {"ssid": "HiveNet", "password": "change-me-please", "led_pin": 2,
+                  "led_active_low": False, "ble": True}
+
+
+def secrets_header(cfg, node_id):
+    esp = {**ESP32_DEFAULTS, **cfg.get("esp32", {})}
+    ssid, password = esp["ssid"], esp["password"]
+    led_pin, led_active_low = esp["led_pin"], esp["led_active_low"]
     node = hive_core.node_entry(cfg, node_id)
     net, demo = cfg["network"], cfg["demo"]
     hub_ip = hive_core.static_ip(cfg["hub"]["ip"]) or ""
@@ -124,6 +131,10 @@ def secrets_header(cfg, node_id, ssid, password, led_pin, led_active_low):
         "",
         f"#define LED_PIN {led_pin}",
         f"#define LED_ACTIVE_LOW {1 if led_active_low else 0}",
+        "",
+        "// Bluetooth hub for BLE devices; needs PartitionScheme=huge_app (Bluetooth + Wi-Fi > 1.3 MB)",
+        f"#define HIVE_BLE {1 if esp['ble'] else 0}",
+        f"#define BLE_HUB_NAME {c_str('Hive-' + node_id)}",
         "",
         f"#define QUORUM {cfg['quorum']}",
         f"#define LEARN_SECONDS {demo['learn_seconds']}",
@@ -156,10 +167,12 @@ def main():
     ap.add_argument("--nodes", default="esp32:esp32,lapA:python,lapB:python",
                     help="comma list of node_id:kind")
     ap.add_argument("--esp32-node", default="esp32", help="which node secrets.h is written for")
-    ap.add_argument("--ssid", default="HiveNet")
-    ap.add_argument("--password", default="change-me-please")
-    ap.add_argument("--led-pin", type=int, default=2)
-    ap.add_argument("--led-active-low", action="store_true")
+    ap.add_argument("--ssid", help="hotspot name for the ESP32 (remembered in nodes.json)")
+    ap.add_argument("--password", help="hotspot password for the ESP32 (remembered in nodes.json)")
+    ap.add_argument("--led-pin", type=int, help="onboard LED GPIO (default 2)")
+    ap.add_argument("--led-active-low", action="store_true", default=None)
+    ap.add_argument("--no-ble", dest="ble", action="store_false", default=None,
+                    help="build the ESP32 without the Bluetooth hub")
     ap.add_argument("--quorum", type=int, help="distinct issuers needed to adopt a vaccine "
                                                 "(default 2; use 1 with only two immune nodes)")
     ap.add_argument("--broadcast", help="vaccine/status broadcast address for the LAN config ('auto' = "
@@ -177,6 +190,13 @@ def main():
         cfg["quorum"] = max(1, args.quorum)
     if args.broadcast:
         cfg["network"]["broadcast"] = args.broadcast
+    # ESP32 settings persist in nodes.json, so a later run never resets the Wi-Fi details.
+    esp = {**ESP32_DEFAULTS, **(old or {}).get("esp32", {})}
+    for key, value in (("ssid", args.ssid), ("password", args.password), ("led_pin", args.led_pin),
+                       ("led_active_low", args.led_active_low), ("ble", args.ble)):
+        if value is not None:
+            esp[key] = value
+    cfg["esp32"] = esp
     write_json(NODES_JSON, cfg)
     write_json(LOCAL_JSON, localize(cfg))
     print(f"wrote {os.path.relpath(NODES_JSON, ROOT)} and {os.path.relpath(LOCAL_JSON, ROOT)}"
@@ -185,9 +205,9 @@ def main():
     if any(nid == args.esp32_node for nid, _ in specs):
         os.makedirs(os.path.dirname(SECRETS_H), exist_ok=True)
         with open(SECRETS_H, "w", encoding="utf-8", newline="\n") as f:
-            f.write(secrets_header(cfg, args.esp32_node, args.ssid, args.password,
-                                   args.led_pin, args.led_active_low))
-        print(f"wrote {os.path.relpath(SECRETS_H, ROOT)} for node '{args.esp32_node}'")
+            f.write(secrets_header(cfg, args.esp32_node))
+        print(f"wrote {os.path.relpath(SECRETS_H, ROOT)} for node '{args.esp32_node}' "
+              f"(Wi-Fi '{esp['ssid']}', LED GPIO {esp['led_pin']}, Bluetooth hub {'on' if esp['ble'] else 'off'})")
 
 
 if __name__ == "__main__":

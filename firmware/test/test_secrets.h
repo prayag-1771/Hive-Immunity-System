@@ -18,6 +18,9 @@
 #define LED_PIN 2
 #define LED_ACTIVE_LOW 0
 
+#define HIVE_BLE 1
+#define BLE_HUB_NAME "Hive-esp32"
+
 #define QUORUM 2
 #define LEARN_SECONDS 20
 #define WINDOW_MS 1000

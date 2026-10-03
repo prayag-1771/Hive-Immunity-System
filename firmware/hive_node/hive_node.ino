@@ -5,6 +5,9 @@
 // list, and the signed-vaccine pipeline (size -> schema -> issuer -> replay -> HMAC ->
 // rate limit -> protected target -> quorum). Talks plain JSON over Wi-Fi UDP.
 //
+// It is also a Bluetooth hub (HIVE_BLE): Bluetooth devices that cannot run Hive connect
+// to it, and one that starts misbehaving is cut off and refused (ble_hub.h).
+//
 // Onboard LED: slow blink = learning, solid/off = healthy (follows the hub's
 // light_on/light_off), fast blink = quarantined, short flash every 2 s = no Wi-Fi.
 // Serial (115200): prints events; type  s = status, r = relearn, x = reset.
@@ -25,6 +28,16 @@
 #include "test_secrets.h"  // firmware/test: fixed keys for the PC harness
 #else
 #include "secrets.h"
+#endif
+
+#ifndef HIVE_BLE
+#define HIVE_BLE 0
+#endif
+#ifndef BLE_HUB_NAME
+#define BLE_HUB_NAME "Hive-" NODE_ID
+#endif
+#if HIVE_BLE
+#include "ble_hub.h"  // needs PartitionScheme=huge_app: Bluetooth + Wi-Fi exceed 1.3 MB
 #endif
 
 // ------------------------------------------------------------------ limits (= hive_core)
@@ -129,6 +142,10 @@ static uint32_t cBlocked = 0, cDropped = 0, cIssued = 0, cAdopted = 0, cRejected
 static uint32_t nextStatus = 0, lastWifiTry = 0;
 
 static char rxBuf[MAX_MSG + 1];
+
+#if HIVE_BLE
+static hive::BleWatch ble(LEARN_SECONDS * 1000UL, WINDOW_MS, THRESHOLD, CONSECUTIVE);
+#endif
 
 // ------------------------------------------------------------------ helpers
 static inline bool reached(uint32_t now, uint32_t t) { return (int32_t)(now - t) >= 0; }
@@ -372,6 +389,9 @@ static void doReset(uint32_t now, const char* why) {
   cBlocked = cDropped = cIssued = cAdopted = cRejected = 0;
   state = haveBaseline ? HEALTHY : LEARNING;
   windowReset(now);
+#if HIVE_BLE
+  ble.reset(now);  // un-block cut-off Bluetooth devices; their baselines stay
+#endif
   event("heal", why);
 }
 
@@ -382,6 +402,9 @@ static void doRelearn(uint32_t now) {
   saveBaseline();
   learnStart = hubIp ? now : 0;
   doReset(now, "reset by operator");
+#if HIVE_BLE
+  ble.relearn(now);
+#endif
   state = LEARNING;
   event("relearn", "learning normal traffic again");
 }
@@ -746,6 +769,54 @@ static void sendStatus(uint32_t now) {
   sendStatusJson(out, len);
 }
 
+// ------------------------------------------------------------------ Bluetooth hub
+#if HIVE_BLE
+// Feed Bluetooth events to the watcher, cut off whoever it asks for, report its events.
+static void bleService(uint32_t now) {
+  hive::BleRx r;
+  while (hive::bleGluePop(&r)) {
+    if (r.kind == hive::BLE_RX_CONNECT) ble.onConnect(r.addr, now);
+    else if (r.kind == hive::BLE_RX_DISCONNECT) ble.onDisconnect(r.addr, now);
+    else ble.onWrite(r.addr, r.data, r.len < sizeof r.data ? r.len : sizeof r.data, r.len, now);
+  }
+  ble.tick(now);
+  uint8_t kick[6];
+  while (ble.popKick(kick)) hive::bleGlueDisconnect(kick);
+  hive::BleWatch::Event e;
+  while (ble.popEvent(&e)) event(e.kind, e.detail);
+}
+
+// One status per Bluetooth device, so the dashboard shows each as its own tile.
+static void bleSendStatus(uint32_t now) {
+  static const char* names[] = {"learning", "healthy", "quarantined"};
+  for (auto& d : ble.dev) {
+    if (!d.used) continue;
+    char id[12], addr[18];
+    snprintf(id, sizeof id, "ble-%02x%02x", d.addr[4], d.addr[5]);
+    hive::bleAddrText(d.addr, addr);
+    JsonDocument doc;
+    doc["v"] = 1;
+    doc["t"] = "status";
+    doc["node"] = id;
+    doc["kind"] = "ble";
+    doc["label"] = hive::BleWatch::label(&d);
+    doc["state"] = d.state == hive::BleWatch::QUARANTINED ? "quarantined" : (d.connected ? names[d.state] : "offline");
+    doc["score"] = roundf(d.score * 100) / 100;
+    doc["thr"] = ble.threshold();
+    JsonArray f = doc["features"].to<JsonArray>();
+    f.add(roundf(d.f[0] * 100) / 100);
+    f.add(roundf(d.f[1] * 100) / 100);
+    doc["addr"] = addr;
+    doc["by"] = NODE_ID;
+    doc["light"] = d.light;
+    doc["learn"] = roundf(ble.learnProgress(d, now) * 100) / 100;
+    char out[400];
+    size_t len = serializeJson(doc, out, sizeof out);
+    sendStatusJson(out, len);
+  }
+}
+#endif
+
 // ------------------------------------------------------------------ LED, Wi-Fi, serial
 static void updateLed(uint32_t now) {
   if (WiFi.status() != WL_CONNECTED) return ledWrite(now % 2000 < 100);
@@ -767,8 +838,10 @@ static void ensureWifi(uint32_t now) {
     }
     return;
   }
-  if (now - lastWifiTry > 5000 || lastWifiTry == 0) {
-    lastWifiTry = now;
+  // Give each attempt time to finish: with Bluetooth sharing the radio, joining can take
+  // several seconds, and restarting it every few seconds means it never completes.
+  if (lastWifiTry == 0 || now - lastWifiTry > 20000) {
+    lastWifiTry = now ? now : 1;
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PASS);
   }
@@ -786,6 +859,16 @@ static void serialCommands(uint32_t now) {
       Serial.printf("[%s] %s ip=%s hub=%s score=%.2f/%.1f f=[%.1f %.0f %.2f %.2f %.0f] blocked=%lu seq=%lu\n",
                     NODE_ID, STATE_NAMES[state], ip, hub, score, (double)DET_THRESHOLD, features[0], features[1],
                     features[2], features[3], features[4], (unsigned long)cBlocked, (unsigned long)vaxSeq);
+#if HIVE_BLE
+      for (auto& d : ble.dev) {
+        if (!d.used) continue;
+        char addr[18];
+        hive::bleAddrText(d.addr, addr);
+        Serial.printf("[%s] ble %s %s state=%d connected=%d score=%.1f f=[%.1f %.2f]%s\n", NODE_ID,
+                      hive::BleWatch::label(&d), addr, d.state, d.connected, d.score, d.f[0], d.f[1],
+                      ble.isBlocked(d.addr) ? " BLOCKED" : "");
+      }
+#endif
     }
   }
 }
@@ -833,12 +916,26 @@ void setup() {
                 nIssuers);
 
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);  // modem sleep delays/drops broadcast vaccines
+  // Without Bluetooth, modem sleep stays off so broadcast vaccines arrive at once. With
+  // the Bluetooth hub, Espressif requires modem sleep for Wi-Fi/Bluetooth coexistence.
+  WiFi.setSleep(HIVE_BLE ? true : false);
   ensureWifi(millis());
   dataUdp.begin(DATA_PORT);
   vaxUdp.begin(VAX_PORT);
   windowReset(millis());
 }
+
+#if HIVE_BLE
+// The Bluetooth hub starts once Wi-Fi is up (or after 15 s regardless), so joining the
+// hotspot gets the radio to itself.
+static void startBluetoothWhenReady(uint32_t now) {
+  static bool started = false;
+  if (started || (WiFi.status() != WL_CONNECTED && now < 15000)) return;
+  started = true;
+  hive::bleGlueBegin(BLE_HUB_NAME);
+  Serial.printf("[%s] Bluetooth hub advertising as %s\n", NODE_ID, BLE_HUB_NAME);
+}
+#endif
 
 void loop() {
   uint32_t now = millis();
@@ -848,9 +945,18 @@ void loop() {
     readPackets(vaxUdp, true, now);
   }
   tick(now);
+#if HIVE_BLE
+  startBluetoothWhenReady(now);
+  bleService(now);
+#endif
   if (reached(now, nextStatus)) {
     nextStatus = now + 1000;
-    if (WiFi.status() == WL_CONNECTED) sendStatus(now);
+    if (WiFi.status() == WL_CONNECTED) {
+      sendStatus(now);
+#if HIVE_BLE
+      bleSendStatus(now);
+#endif
+    }
   }
   updateLed(now);
   serialCommands(now);

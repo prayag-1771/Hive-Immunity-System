@@ -145,6 +145,125 @@ static JsonDocument lastStatus() {
   return d;
 }
 
+// ---------------------------------------------------------------- Bluetooth hub
+static const uint8_t BULB[6] = {0x88, 0xA2, 0x9E, 0x40, 0xA3, 0xBC};
+static const uint8_t LOCK[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+
+static void bleEvent(uint8_t kind, const uint8_t addr[6], const std::string& data = "") {
+  hive::BleRx r = {};
+  r.kind = kind;
+  memcpy(r.addr, addr, 6);
+  r.len = (uint16_t)data.size();
+  memcpy(r.data, data.data(), std::min(data.size(), sizeof r.data));
+  hive::g_ble_rx.push_back(r);
+}
+
+// Advance time with hub traffic plus Bluetooth reports every reportMs from `who`,
+// and optionally a junk flood of floodPerSec writes from the bulb.
+static void runBle(uint32_t ms, const uint8_t who[6], uint32_t reportMs, int floodPerSec = 0) {
+  uint32_t end = g_millis + ms, nextReport = g_millis, nextFlood = g_millis;
+  static int seq = 0;
+  while ((int32_t)(end - g_millis) > 0) {
+    if (reportMs && (int32_t)(g_millis - nextReport) >= 0) {
+      bleEvent(hive::BLE_RX_WRITE, who, "blebulb:" + std::to_string(++seq) + ":" + (seq % 2 ? "1" : "0"));
+      nextReport += reportMs;
+    }
+    if (floodPerSec && (int32_t)(g_millis - nextFlood) >= 0) {
+      std::string junk(12 + rng() % 8, '\0');
+      for (auto& c : junk) c = (char)(rng() % 256);
+      bleEvent(hive::BLE_RX_WRITE, BULB, junk);
+      nextFlood += 1000 / floodPerSec;
+    }
+    run(2);
+  }
+}
+
+static JsonDocument bleStatus(const char* id) {
+  JsonDocument d;
+  for (auto it = g_sent.rbegin(); it != g_sent.rend(); ++it)
+    if (it->port == STATUS_PORT && !deserializeJson(d, it->data) && d["t"] == "status" && d["node"] == id) return d;
+  d.clear();
+  return d;
+}
+
+static bool kicked(const uint8_t a[6]) {
+  for (auto& k : hive::g_ble_kicked)
+    if (memcmp(k.data(), a, 6) == 0) return true;
+  return false;
+}
+
+static void testBluetoothHub() {
+  CHECK(hive::g_ble_started);
+  g_sent.clear();
+  hive::g_ble_kicked.clear();
+
+  // Connects, learns its normal (one report every 2 s) and turns healthy.
+  bleEvent(hive::BLE_RX_CONNECT, BULB);
+  runBle(25000, BULB, 2000);
+  auto ev = drainEvents();
+  CHECK(has(ev, "ble_connected", "Bluetooth device 88:A2:9E:40:A3:BC connected, learning"));
+  CHECK(has(ev, "ble_learned", "blebulb 88:A2:9E:40:A3:BC: baseline from"));
+  JsonDocument st = bleStatus("ble-a3bc");
+  CHECK(st["kind"] == "ble");
+  CHECK(st["label"] == "blebulb");
+  CHECK(st["state"] == "healthy");
+  CHECK(st["addr"] == "88:A2:9E:40:A3:BC");
+  g_sent.clear();
+
+  // Ten quiet minutes: no false alarm.
+  runBle(600000, BULB, 2000);
+  CHECK(!has(drainEvents(), "ble_quarantine"));
+  g_sent.clear();
+
+  // A second device keeps working whatever happens to the bulb.
+  bleEvent(hive::BLE_RX_CONNECT, LOCK);
+  runBle(25000, LOCK, 2000);
+  g_sent.clear();
+
+  // The bulb floods junk: cut off within ~2 windows and its link is dropped.
+  uint32_t t0 = g_millis;
+  while (!kicked(BULB) && g_millis - t0 < 5000) runBle(10, BULB, 0, 30);
+  CHECK(kicked(BULB));
+  CHECK(g_millis - t0 <= 2600);
+  ev = drainEvents();
+  CHECK(has(ev, "ble_quarantine", "blebulb 88:A2:9E:40:A3:BC cut off"));
+  run(1100);
+  CHECK(bleStatus("ble-a3bc")["state"] == "quarantined");
+  CHECK(!kicked(LOCK));
+  CHECK(state == HEALTHY);  // the hub itself is not under attack
+  g_sent.clear();
+
+  // It tries to come back: refused at once, and the refusal is reported (rate-limited).
+  hive::g_ble_kicked.clear();
+  bleEvent(hive::BLE_RX_DISCONNECT, BULB);
+  for (int i = 0; i < 3; i++) {
+    bleEvent(hive::BLE_RX_CONNECT, BULB);
+    run(500);
+  }
+  CHECK(hive::g_ble_kicked.size() == 3);
+  CHECK(count(drainEvents(), "ble_refused") == 1);
+  g_sent.clear();
+
+  // Signed reset from the dashboard: the bulb may reconnect and is healthy again.
+  hive::g_ble_kicked.clear();
+  inject(DATA_PORT, HUB, signedCtrl("reset", 1791043300000ULL));
+  run(20);
+  bleEvent(hive::BLE_RX_CONNECT, BULB);
+  runBle(3000, BULB, 2000);
+  CHECK(hive::g_ble_kicked.empty());
+  run(1100);
+  CHECK(bleStatus("ble-a3bc")["state"] == "healthy");
+
+  // Malformed reports alone (not a flood) are also caught.
+  hive::g_ble_kicked.clear();
+  t0 = g_millis;
+  while (!kicked(BULB) && g_millis - t0 < 8000) {
+    bleEvent(hive::BLE_RX_WRITE, BULB, "not-a-report!!");
+    runBle(1000, BULB, 0);
+  }
+  CHECK(kicked(BULB));
+}
+
 int main() {
   g_my_ip = ME;
   g_millis = 1000;
@@ -324,6 +443,10 @@ int main() {
   CHECK(state == LEARNING);
   run(23000);
   CHECK(state == HEALTHY);
+
+  // 11. Bluetooth hub: learns a Bluetooth bulb, cuts it off when it floods, refuses its
+  //     reconnections, lets it back after a signed reset, and leaves other devices alone.
+  testBluetoothHub();
 
   if (failures) {
     std::printf("%d failure(s)\n", failures);

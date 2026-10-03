@@ -31,5 +31,30 @@ class RecvAll(unittest.TestCase):
             tx.close()
 
 
+class LocalSegmentGuard(unittest.TestCase):
+    """Hive never sends outside the machine's own network (brief's safety rule)."""
+
+    def test_loopback_and_limited_broadcast_allowed(self):
+        self.assertTrue(net.on_local_segment("127.0.0.5"))
+        self.assertTrue(net.on_local_segment("255.255.255.255"))
+
+    def test_internet_address_refused(self):
+        self.assertFalse(net.on_local_segment("8.8.8.8"))
+        self.assertFalse(net.on_local_segment("1.1.1.1"))
+
+    def test_own_segment_allowed(self):
+        mine = net.guess_lan_ip()
+        if mine.startswith("127."):
+            self.skipTest("no LAN interface on this machine")
+        self.assertTrue(net.on_local_segment(mine.rsplit(".", 1)[0] + ".250"))
+
+    def test_send_to_internet_is_dropped_quietly(self):
+        s = net.udp_socket("0.0.0.0", 0)
+        try:
+            net.send(s, b"x", ("8.8.8.8", 47000))  # must neither raise nor send
+        finally:
+            s.close()
+
+
 if __name__ == "__main__":
     unittest.main()

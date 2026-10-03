@@ -3,6 +3,8 @@
 import json
 import os
 import socket
+import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CONFIG = os.path.join(ROOT, "config", "nodes.json")
@@ -57,7 +59,46 @@ def peer_ips(cfg, exclude=()):
     return out
 
 
+_route_cache = {}
+_warned = {}
+
+
+def on_local_segment(ip):
+    """True for loopback, broadcast and addresses on this machine's own network segment.
+
+    Hive only ever talks to devices on its own private network. If a machine changes
+    networks (say the demo hotspot drops and the laptop rejoins a campus Wi-Fi), traffic
+    for the old addresses must not leave through the new network's router. The OS routing
+    table decides: connect() on a UDP socket (which sends nothing) reveals the local
+    address that would be used, and the destination must share its /24.
+    """
+    if ip.startswith("127.") or ip == "255.255.255.255":
+        return True
+    now = time.monotonic()
+    hit = _route_cache.get(ip)
+    if hit and now - hit[1] < 3.0:
+        return hit[0]
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.connect((ip, 9))
+        ok = s.getsockname()[0].rsplit(".", 1)[0] == ip.rsplit(".", 1)[0]
+    except OSError:
+        ok = False
+    finally:
+        s.close()
+    _route_cache[ip] = (ok, now)
+    return ok
+
+
 def send(sock, msg, addr):
+    if not on_local_segment(addr[0]):
+        now = time.monotonic()
+        if now - _warned.get(addr[0], -60.0) >= 60.0:
+            _warned[addr[0]] = now
+            print(f"hive: not sending to {addr[0]}: it is outside this machine's local network",
+                  file=sys.stderr, flush=True)
+        return
     data = msg if isinstance(msg, bytes) else json.dumps(msg, separators=(",", ":")).encode()
     try:
         sock.sendto(data, addr)
