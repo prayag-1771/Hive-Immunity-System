@@ -1,5 +1,7 @@
 # Hive Immunity System
 
+[![CI](https://github.com/prayag-1771/Hive-Immunity-System/actions/workflows/ci.yml/badge.svg)](https://github.com/prayag-1771/Hive-Immunity-System/actions/workflows/ci.yml)
+
 **A digital immune system for IoT devices.** Smart devices detect attacks with a tiny
 on-device model, quarantine themselves, and share signed **vaccines** ("block this
 sender") so their neighbours block the attacker *before it reaches them*. Dumb devices
