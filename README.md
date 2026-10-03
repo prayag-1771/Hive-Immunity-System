@@ -176,6 +176,14 @@ sh firmware/test/run_host_test.sh      # ESP32 firmware on a PC (Linux/WSL, need
 3. **ESP32:** open `firmware/hive_node/hive_node.ino` in Arduino IDE (ESP32 core 3.x,
    ArduinoJson 7) or use arduino-cli, then flash it. Its LED blinks slowly while learning,
    follows the hub's light commands when healthy, and blinks fast when quarantined.
+
+   ```sh
+   arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+   arduino-cli lib install ArduinoJson
+   arduino-cli compile --fqbn esp32:esp32:esp32 firmware/hive_node
+   arduino-cli upload  --fqbn esp32:esp32:esp32 -p COM5 firmware/hive_node   # or /dev/ttyUSB0
+   arduino-cli monitor -p COM5 -c baudrate=115200
+   ```
 4. **Start the roles:**
    - Laptop A: `python dashboard/server.py --http 0.0.0.0`,
      `python agent/hive_agent.py --node lapA` and `sudo python3 gateway/guardian.py --nft`
