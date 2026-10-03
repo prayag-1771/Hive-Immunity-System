@@ -190,21 +190,21 @@ class Dashboard:
                 return False, f"{parts[1]} has not reported in yet"
             ok, msg = self._trigger("attacker", "attack", target=ip)
             if ok:
-                self.note(f"operator: attack {label_for(self.entries[parts[1]])} ({ip})", "scenario")
+                self.note(f"pressed: attack {label_for(self.entries[parts[1]])} ({ip})", "scenario")
             return ok, msg
         if name == "cure":
             ips = self.node_ips()
             legit = ips[-1] if ips else None
             ok, msg = self._trigger("attacker", "cure", peers=ips, hub=self.hub_ip, legit=legit)
             if ok:
-                self.note("operator: attack the cure (poisoned vaccines)", "scenario")
+                self.note("pressed: attack the cure (poisoned vaccines)", "scenario")
             return ok, msg
         if name == "stop":
             return self._trigger("attacker", "stop")
         if name in ("infect_bulb", "heal_bulb"):
             ok, msg = self._trigger("dumb", "infect" if name == "infect_bulb" else "heal")
             if ok and name == "infect_bulb":
-                self.note("operator: infect the dumb bulb", "scenario")
+                self.note("pressed: infect the dumb bulb", "scenario")
             return ok, msg
         return False, f"unknown scenario {'/'.join(parts)}"
 
@@ -217,12 +217,12 @@ class Dashboard:
         with self.lock:
             self._reset_immunity()
             self.defenses = {}
-        self.note(f"operator: reset sent to {n} node(s)", "reset")
+        self.note(f"reset: everyone back to healthy ({n} node(s))", "reset")
         return True, "reset sent"
 
     def relearn(self):
         n = self._ctrl("relearn")
-        self.note(f"operator: relearn sent to {n} node(s)", "reset")
+        self.note(f"relearn: {n} node(s) learning normal traffic again", "reset")
         return True, "relearn sent"
 
     # -- explain (optional local open model)
@@ -311,12 +311,17 @@ def make_handler(dash):
             self.wfile.write(data)
 
         def do_GET(self):
-            if self.path in ("/", "/index.html"):
+            path, _, query = self.path.partition("?")
+            if path in ("/", "/index.html"):
                 with open(INDEX, "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8")
-            if self.path == "/api/state":
-                return self._send(200, dash.snapshot())
-            if self.path == "/events":
+            if path == "/api/state":
+                snap = dash.snapshot()
+                if "log=1" in query:
+                    with dash.lock:
+                        snap["events"] = list(dash.events)[-80:]
+                return self._send(200, snap)
+            if path == "/events":
                 return self._sse()
             self._send(404, {"error": "not found"})
 
@@ -324,7 +329,7 @@ def make_handler(dash):
             length = int(self.headers.get("Content-Length") or 0)
             if length:
                 self.rfile.read(length)
-            parts = [p for p in self.path.split("/") if p]
+            parts = [p for p in self.path.partition("?")[0].split("/") if p]
             if parts[:2] == ["api", "scenario"]:
                 ok, msg = dash.scenario(parts[2:])
             elif parts == ["api", "reset"]:

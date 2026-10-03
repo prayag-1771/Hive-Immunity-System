@@ -1,0 +1,35 @@
+#!/usr/sbin/nft -f
+# Hive gateway: quarantine for misbehaving dumb devices.
+#
+#   load:    sudo nft -f gateway/nft_rules.nft      (idempotent: replaces the table)
+#   remove:  sudo nft delete table inet hive
+#   inspect: sudo nft list set inet hive quarantine
+#
+# gateway/guardian.py --nft adds a device IP to @quarantine when it misbehaves and
+# flushes the set on reset. Note: Wi-Fi clients talking to each other on the same
+# access point are relayed by the Wi-Fi driver, not routed, so these rules isolate a
+# device from the internet and from the gateway -- exactly the botnet/DDoS case.
+
+table inet hive
+delete table inet hive
+
+table inet hive {
+    set quarantine {
+        type ipv4_addr
+    }
+
+    chain forward {
+        type filter hook forward priority -10; policy accept;
+        # A quarantined device cannot reach the internet or other networks...
+        ip saddr @quarantine counter drop
+        # ...and nothing reaches it through the gateway.
+        ip daddr @quarantine counter drop
+    }
+
+    chain input {
+        type filter hook input priority -10; policy accept;
+        # Keep DHCP working and let the guardian keep watching (sink port 47003).
+        ip saddr @quarantine udp dport { 67, 47003 } accept
+        ip saddr @quarantine counter drop
+    }
+}

@@ -30,7 +30,7 @@
 
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; align-content: start; }
   .tile { position: relative; background: var(--panel); border: 2px solid var(--line); border-radius: 16px;
-    padding: 14px 16px 12px; min-height: 260px; transition: border-color .3s, box-shadow .3s; }
+    padding: 14px 16px 12px; min-height: 330px; transition: border-color .3s, box-shadow .3s; }
   .tile.healthy { border-color: var(--green); }
   .tile.quarantined { border-color: var(--red); box-shadow: 0 0 24px rgba(239,68,68,.45); animation: throb 1s infinite alternate; }
   .tile.learning { border-color: var(--grey); }
@@ -83,7 +83,7 @@
     display: grid; place-items: center; font-style: normal; font-size: 13px; font-weight: 900; }
   .defs li.lit { color: var(--text); }
   .defs li.lit i { background: var(--green); border-color: var(--green); color: #052e14; }
-  .log { height: 330px; overflow-y: auto; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+  .log { height: 360px; overflow-y: auto; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
   .log div { padding: 4px 8px; border-radius: 6px; background: var(--panel2); border-left: 4px solid var(--grey); }
   .log time { color: var(--muted); font-family: Consolas, monospace; font-size: 12px; margin-right: 6px; }
   .log .quarantine, .log .attack_started { border-left-color: var(--red); }
@@ -92,7 +92,7 @@
   .log .vax_rejected, .log .cure_step { border-left-color: #a855f7; }
   .log .heal, .log .learned, .log .reset { border-left-color: var(--green); }
 
-  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
   button { font: inherit; font-size: 19px; font-weight: 700; color: var(--text); background: var(--panel2);
     border: 2px solid var(--line); border-radius: 12px; padding: 14px 20px; cursor: pointer; }
   button:hover { border-color: var(--muted); }
@@ -125,7 +125,10 @@
 </header>
 
 <main>
-  <section class="tiles" id="tiles"></section>
+  <div>
+    <section class="tiles" id="tiles"></section>
+    <div class="controls" id="controls"></div>
+  </div>
   <aside>
     <div class="panel">
       <h2>Time to immunity</h2>
@@ -143,7 +146,6 @@
   </aside>
 </main>
 
-<div class="controls" id="controls"></div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal" hidden>
   <div class="panel"><h2>Incident explained</h2><div id="explainText"></div><small id="explainSrc"></small>
@@ -227,7 +229,8 @@ function renderNode(n) {
   $("light-" + n.id).className = "bulb" + (s.light ? " on" : "");
   let badges = (s.blocklist || []).map((ip) => `<span class="badge immune">IMMUNE to ${esc(ip)}</span>`);
   badges = badges.concat((s.pending || []).map(([ip, k]) => `<span class="badge pending">pending ${k}/${s.quorum || state.quorum}: ${esc(ip)}</span>`));
-  if ((instantUntil[n.id] || 0) > Date.now()) badges.unshift(`<span class="badge instant">BLOCKED INSTANTLY</span>`);
+  const inst = (im.instant || {})[n.id], nowS = Date.now() / 1000 + offset;
+  if ((instantUntil[n.id] || 0) > Date.now() || (inst && nowS - inst < 10)) badges.unshift(`<span class="badge instant">BLOCKED INSTANTLY</span>`);
   $("badges-" + n.id).innerHTML = badges.join("");
   $("score-" + n.id).innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
   $("cnt-" + n.id).innerHTML = [["blocked", s.blocked], ["vax out", s.vax_issued], ["adopted", s.vax_adopted], ["rejected", s.vax_rejected]]
@@ -249,7 +252,9 @@ function renderBulb() {
   $("badges-bulb").innerHTML = st === "quarantined" ? `<span class="badge gw">isolated by the gateway</span>` : "";
   $("score-bulb").innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
   const f = s.features || [0, 0];
-  $("foot-bulb").innerHTML = `${(+f[0]).toFixed(1)} msgs/s &middot; ${(+f[1]).toFixed(0)} destinations/s &middot; watched by gateway ${esc(s.by || "")}`;
+  $("foot-bulb").innerHTML = (st === "quarantined" ? `<strong>${s.dropped || 0} packets dropped</strong> at the gateway`
+    : `${(+f[0]).toFixed(1)} msgs/s &middot; ${(+f[1]).toFixed(0)} destinations/s`) + ` &middot; watched by gateway ${esc(s.by || "")}`
+    + (s.nft ? " (nftables)" : "");
 }
 
 function renderSide() {
@@ -280,7 +285,8 @@ function render() {
 let lastLine = null;
 function sentence(kind, who, d) {
   switch (kind) {
-    case "quarantine": return `<b>${who}</b> detected an attack and quarantined itself &mdash; ${d}`;
+    case "quarantine": return who === "Gateway" ? `<b>Gateway</b> isolated a misbehaving device &mdash; ${d}`
+      : `<b>${who}</b> detected an attack and quarantined itself &mdash; ${d}`;
     case "vax_issued": return `<b>${who}</b> broadcast a signed vaccine: ${d}`;
     case "vax_pending": return d.includes("already blocked") ? `<b>${who}</b>: ${d}` : `<b>${who}</b>: vaccine ${d} &mdash; waiting for a second opinion`;
     case "vax_adopted": return `<b>${who}</b> is now <b>IMMUNE</b>: ${d}`;
@@ -291,6 +297,7 @@ function sentence(kind, who, d) {
     case "attack_started": return `<b>ATTACKER</b> ${d}`;
     case "attack_finished": return `<b>ATTACKER</b> ${d}`;
     case "cure_step": return `<b>ATTACKER</b> poisons the vaccine channel &mdash; ${d}`;
+    case "scenario": case "reset": return `<b>Operator</b> ${d}`;
     default: return `<b>${who}</b> ${kind.replace(/_/g, " ")}: ${d}`;
   }
 }
@@ -299,15 +306,16 @@ function addLog(e, animate) {
   const key = e.kind + "|" + e.detail;
   const t = new Date(e.ts * 1000).toLocaleTimeString([], {hour12: false});
   const log = $("log");
-  if (lastLine && lastLine.key === key && Math.abs(e.ts - lastLine.ts) < 2.5 && !lastLine.nodes.includes(e.node)) {
-    lastLine.nodes.push(e.node);
-    lastLine.el.innerHTML = `<time>${t}</time>` + sentence(e.kind, lastLine.nodes.map(label).map(esc).join(", "), esc(e.detail));
+  if (lastLine && lastLine.key === key && Math.abs(e.ts - lastLine.ts) < 2.5) {
+    if (lastLine.nodes.includes(e.node)) lastLine.repeat += 1; else lastLine.nodes.push(e.node);
+    const times = lastLine.repeat > 1 ? ` <b>&times;${lastLine.repeat}</b>` : "";
+    lastLine.el.innerHTML = `<time>${t}</time>` + sentence(e.kind, lastLine.nodes.map(label).map(esc).join(", "), esc(e.detail)) + times;
   } else {
     const el = document.createElement("div");
     el.className = e.kind;
     el.innerHTML = `<time>${t}</time>` + sentence(e.kind, esc(label(e.node)), esc(e.detail));
     log.prepend(el);
-    lastLine = {key, ts: e.ts, nodes: [e.node], el};
+    lastLine = {key, ts: e.ts, nodes: [e.node], el, repeat: 1};
     while (log.children.length > 80) log.lastChild.remove();
   }
   if (!animate) return;
@@ -415,8 +423,19 @@ function connect() {
   es.addEventListener("log", (m) => addLog(JSON.parse(m.data), true));
   es.onerror = () => { $("conn").className = "dot warn"; $("connText").textContent = "reconnecting"; };
 }
+// Fallback: ?poll uses plain polling instead of Server-Sent Events (odd proxies, screenshots).
+async function poll() {
+  try {
+    const j = await (await fetch("/api/state?log=1")).json();
+    state = j; offset = j.now - Date.now() / 1000;
+    $("conn").className = "dot on"; $("connText").textContent = "live (polling)";
+    $("log").innerHTML = ""; lastLine = null;
+    (j.events || []).forEach((e) => addLog(e, false));
+    render();
+  } catch (err) { $("conn").className = "dot warn"; $("connText").textContent = "reconnecting"; }
+}
 setInterval(() => { if (state) renderSide(); }, 100);
-connect();
+if (new URLSearchParams(location.search).has("poll")) { poll(); setInterval(poll, 700); } else { connect(); }
 </script>
 </body>
 </html>
