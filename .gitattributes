@@ -2,3 +2,5 @@
 *.nft text eol=lf
 *.ino text eol=lf
 *.h text eol=lf
+deploy/pi/*.sh text eol=lf
+deploy/pi/*.service text eol=lf

@@ -1,0 +1,18 @@
+[Unit]
+Description=Hive Immunity System: Raspberry Pi demo roles
+Documentation=https://github.com/prayag-1771/Hive-Immunity-System
+After=network-online.target bluetooth.service
+Wants=network-online.target bluetooth.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/hive-pi
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/sh /home/pi/Hive-Immunity-System/deploy/pi/hive-pi.sh
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
