@@ -48,7 +48,7 @@ NETWORK_DEFAULTS = {
     "attacker_port": 47004,
     "dumb_port": 47005,
     "http_port": 8080,
-    "broadcast": "255.255.255.255",
+    "broadcast": "auto",   # this /24's directed broadcast + 255.255.255.255
 }
 
 

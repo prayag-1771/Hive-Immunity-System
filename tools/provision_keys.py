@@ -117,7 +117,8 @@ def secrets_header(cfg, node_id, ssid, password, led_pin, led_active_low):
         f"#define DATA_PORT {net['data_port']}",
         f"#define VAX_PORT {net['vax_port']}",
         f"#define STATUS_PORT {net['status_port']}",
-        f"#define BROADCAST_IP {c_str(net['broadcast'] or '255.255.255.255')}",
+        # "auto" on the ESP32 = 255.255.255.255 plus the subnet broadcast it computes itself
+        f"#define BROADCAST_IP {c_str(net['broadcast'] if net['broadcast'] not in (None, 'auto') else '255.255.255.255')}",
         f"#define HUB_IP {c_str(hub_ip)}            // \"\" = learn from the first hub command",
         f"#define DASHBOARD_IP {c_str(dash_ip)}      // \"\" = same as hub",
         "",
@@ -161,6 +162,8 @@ def main():
     ap.add_argument("--led-active-low", action="store_true")
     ap.add_argument("--quorum", type=int, help="distinct issuers needed to adopt a vaccine "
                                                 "(default 2; use 1 with only two immune nodes)")
+    ap.add_argument("--broadcast", help="vaccine/status broadcast address for the LAN config ('auto' = "
+                                        "directed /24 broadcast + 255.255.255.255)")
     ap.add_argument("--rotate", action="store_true", help="generate fresh keys for everyone")
     args = ap.parse_args()
 
@@ -172,6 +175,8 @@ def main():
     cfg = build(old, specs, args.rotate)
     if args.quorum is not None:
         cfg["quorum"] = max(1, args.quorum)
+    if args.broadcast:
+        cfg["network"]["broadcast"] = args.broadcast
     write_json(NODES_JSON, cfg)
     write_json(LOCAL_JSON, localize(cfg))
     print(f"wrote {os.path.relpath(NODES_JSON, ROOT)} and {os.path.relpath(LOCAL_JSON, ROOT)}"

@@ -64,6 +64,9 @@ class Dashboard:
         self.subscribers = []
         self.defenses = {}
         self.trigger_seq = int(time.time() * 1000)
+        # Every event is stamped with the dashboard's own clock on arrival: devices' clocks
+        # can disagree (an offline Pi has no battery-backed clock, the ESP32 has none).
+        self.clock = time.time
         self._reset_immunity()
 
     # -- immunity timer
@@ -127,7 +130,7 @@ class Dashboard:
                         self.hub.set_target(node, ip)
                     target = self.immunity["target"]
                     if target and target in msg.get("blocklist", []) and node not in self.immunity["nodes"]:
-                        self.immunity["nodes"][node] = (msg.get("ts", time.time()), "adopted")
+                        self.immunity["nodes"][node] = (self.clock(), "adopted")
                     self._check_immune()
                 elif msg.get("kind") == "dumb":
                     self.bulb.update(status=msg, seen=now)
@@ -136,7 +139,7 @@ class Dashboard:
                 self.peers[msg["role"]].update(ip=ip, seen=now, busy=bool(msg.get("busy")))
             elif t == "event" and isinstance(msg.get("kind"), str):
                 ev = {"node": str(msg.get("node", "?")), "kind": msg["kind"],
-                      "detail": str(msg.get("detail", ""))[:200], "ts": msg.get("ts", time.time()),
+                      "detail": str(msg.get("detail", ""))[:200], "ts": self.clock(),
                       "target": msg.get("target")}
                 self.events.append(ev)
                 self._track(ev["node"], ev)

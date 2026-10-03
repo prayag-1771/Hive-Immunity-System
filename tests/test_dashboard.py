@@ -36,11 +36,14 @@ class DashboardState(unittest.TestCase):
     def tearDown(self):
         self.d.sock.close()
 
-    def status(self, node, ip, blocklist=()):
+    def status(self, node, ip, blocklist=(), at=None):
+        self.d.clock = (lambda: at) if at is not None else time.time
         self.d._on_msg({"v": 1, "t": "status", "node": node, "state": "healthy", "blocklist": list(blocklist)}, ip)
 
     def event(self, node, kind, detail="", target=None, ts=None):
-        msg = {"v": 1, "t": "event", "node": node, "kind": kind, "detail": detail, "ts": ts or time.time()}
+        """ts = when the dashboard receives it (its own clock); the sender's ts is ignored."""
+        self.d.clock = (lambda: ts) if ts is not None else time.time
+        msg = {"v": 1, "t": "event", "node": node, "kind": kind, "detail": detail, "ts": 12345.0}
         if target:
             msg["target"] = target
         self.d._on_msg(msg, "127.0.9.99")
@@ -64,6 +67,10 @@ class DashboardState(unittest.TestCase):
         self.event("lapA", "vax_adopted", "", ATT, ts=3.0)
         self.event("lapA", "blocked_first_packet", "", ATT, ts=4.0)
         self.assertEqual(self.d.snapshot()["immunity"]["instant"], {"lapA": 4.0})
+
+    def test_sender_clock_is_ignored(self):
+        self.event("attacker", "attack_started", "", ATT, ts=500.0)
+        self.assertEqual(self.d.snapshot()["immunity"]["t0"], 500.0)
 
     def test_status_blocklist_counts_as_immune(self):
         self.event("attacker", "attack_started", "", ATT, ts=1.0)

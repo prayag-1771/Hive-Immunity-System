@@ -10,7 +10,8 @@ Choices made while building, where the brief left room. Newest at the bottom.
    Verified on Windows; Linux supports it too. macOS only has `127.0.0.1` unless aliases
    are added, so run the local demo on Windows or Linux.
 3. **Loopback has no broadcast**, so `config/local.json` sets `broadcast: null` and
-   vaccines go unicast to every configured peer. On the LAN, `broadcast: "auto"` sends to
+   vaccines go unicast to every configured peer. On the LAN, `broadcast: "auto"` (the
+   default) sends to
    the /24 directed broadcast *and* 255.255.255.255 (Windows may send the latter out of the
    wrong network card). Receivers silently drop an identical second copy, so duplicates
    never count as replays.
@@ -38,7 +39,9 @@ Choices made while building, where the brief left room. Newest at the bottom.
     heal a quarantined node.
 11. **Events may carry a `target` field** (the IP concerned) in addition to the brief's
     fields, so the dashboard computes *time to immunity* from structured data, not text.
-    ESP32 events have no `ts` (it has no clock); the dashboard stamps them on arrival.
+    The dashboard stamps **every** event with its own clock on arrival and ignores the
+    sender's `ts`: the ESP32 has no clock, and an offline Raspberry Pi (no RTC battery, no
+    NTP at the venue) can drift, which would corrupt *time to immunity*.
 12. **Status messages may exceed 512 bytes** (the node limit applies to messages *to*
     nodes). The dashboard accepts up to 4 KB; real statuses stay under ~600 bytes, and both
     test suites check that a status with full tables still fits in one datagram.
