@@ -66,6 +66,22 @@ class Detection(unittest.TestCase):
         self.assertEqual(s.node.state, "healthy")
         self.assertLess(s.node.score, s.node.detector.threshold)
 
+    def test_no_false_alarms_over_ten_minutes(self):
+        for seed in range(5):
+            s = Sim()
+            s.rng.seed(seed)
+            s.run(12)
+            s.run(600)
+            kinds, _ = s.kinds()
+            self.assertNotIn("quarantine", kinds, f"seed {seed}")
+
+    def test_empty_window_is_not_an_anomaly(self):
+        s = self.learned()
+        s.node.window = hc.Window()
+        s.node.window_start = s.t
+        s.node.tick(s.t + 1.0)
+        self.assertLess(s.node.score, s.node.detector.threshold)
+
     def test_attack_quarantines_blocks_and_vaccinates(self):
         s = self.learned()
         s.run(3, attack_rate=50)

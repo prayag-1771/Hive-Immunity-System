@@ -519,6 +519,12 @@ class HiveNode:
             return
         window, self.window, self.window_start = self.window, Window(), now
         self.features = window.features(elapsed)
+        if window.count == 0:
+            # An empty window says nothing about message size; without this a quiet second
+            # reads as "mean size 0", a huge z-score and a false alarm.
+            ref = self.baseline or self.learn_base
+            if ref is not None and ref.n:
+                self.features[4] = ref.mean[4]
 
         if self.state == "learning":
             self._learn(now)

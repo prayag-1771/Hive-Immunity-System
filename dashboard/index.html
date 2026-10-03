@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive — live immune system</title>
+<style>
+  :root {
+    --bg: #0a0f1e; --panel: #121a2f; --panel2: #18223c; --line: #26324f;
+    --text: #eef2fb; --muted: #8e99b8;
+    --green: #22c55e; --red: #ef4444; --blue: #3b82f6; --amber: #f59e0b; --grey: #64748b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  body { padding: 14px 18px 18px; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+  .logo { font-size: 30px; font-weight: 800; letter-spacing: .04em; }
+  .logo span { color: var(--amber); }
+  .tagline { color: var(--muted); font-size: 17px; }
+  .spacer { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px;
+    background: var(--panel2); color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--grey); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.warn { background: var(--amber); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; align-content: start; }
+  .tile { position: relative; background: var(--panel); border: 2px solid var(--line); border-radius: 16px;
+    padding: 14px 16px 12px; min-height: 260px; transition: border-color .3s, box-shadow .3s; }
+  .tile.healthy { border-color: var(--green); }
+  .tile.quarantined { border-color: var(--red); box-shadow: 0 0 24px rgba(239,68,68,.45); animation: throb 1s infinite alternate; }
+  .tile.learning { border-color: var(--grey); }
+  .tile.offline { border-style: dashed; opacity: .55; }
+  .tile.immune { box-shadow: 0 0 22px rgba(59,130,246,.55); }
+  .tile.hit { animation: hit .6s; }
+  @keyframes throb { from { box-shadow: 0 0 10px rgba(239,68,68,.3); } to { box-shadow: 0 0 30px rgba(239,68,68,.7); } }
+  @keyframes hit { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
+  .t-head { display: flex; align-items: baseline; gap: 10px; }
+  .t-name { font-size: 26px; font-weight: 700; }
+  .t-ip { color: var(--muted); font-size: 13px; margin-left: auto; font-family: Consolas, monospace; }
+  .t-kind { color: var(--muted); font-size: 14px; margin: 2px 0 10px; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 8px; font-weight: 800; font-size: 17px; letter-spacing: .05em; }
+  .pill.healthy { background: rgba(34,197,94,.16); color: var(--green); }
+  .pill.quarantined { background: rgba(239,68,68,.18); color: var(--red); }
+  .pill.learning, .pill.offline { background: rgba(100,116,139,.2); color: #cbd5e1; }
+  .light { float: right; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .bulb { width: 16px; height: 16px; border-radius: 50%; background: #2a3350; border: 1px solid #3c4870; }
+  .bulb.on { background: #fde68a; box-shadow: 0 0 12px #fde68a; border-color: #fde68a; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; min-height: 30px; }
+  .badge { padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+  .badge.immune { background: var(--blue); color: white; }
+  .badge.pending { background: rgba(245,158,11,.18); color: var(--amber); border: 1px solid rgba(245,158,11,.5); }
+  .badge.instant { background: white; color: #0a0f1e; animation: pop .4s; }
+  .badge.gw { background: rgba(239,68,68,.18); color: var(--red); }
+  @keyframes pop { from { transform: scale(1.4); } to { transform: scale(1); } }
+  .score { margin: 6px 0 8px; }
+  .score-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .bar { position: relative; height: 12px; background: #0d1426; border-radius: 6px; overflow: hidden; margin-top: 3px; }
+  .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--green); border-radius: 6px; transition: width .25s, background .25s; }
+  .bar > b { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: #94a3b8; }
+  .learnbar > i { background: var(--grey); }
+  .counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; margin-top: 6px; }
+  .counters div { background: var(--panel2); border-radius: 8px; padding: 5px 2px; }
+  .counters b { display: block; font-size: 20px; }
+  .counters span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .t-foot { margin-top: 9px; font-size: 13px; color: var(--muted); }
+  .t-foot strong { color: var(--amber); }
+
+  aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .panel h2 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+  .tti { font-size: 64px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tti.live { color: var(--amber); }
+  .tti.done { color: var(--blue); }
+  .tti-sub { color: var(--muted); margin-top: 6px; font-size: 14px; }
+  .defs { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+  .defs li { display: flex; align-items: center; gap: 9px; font-size: 15px; color: var(--muted); }
+  .defs li i { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--grey); flex: none;
+    display: grid; place-items: center; font-style: normal; font-size: 13px; font-weight: 900; }
+  .defs li.lit { color: var(--text); }
+  .defs li.lit i { background: var(--green); border-color: var(--green); color: #052e14; }
+  .log { height: 330px; overflow-y: auto; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+  .log div { padding: 4px 8px; border-radius: 6px; background: var(--panel2); border-left: 4px solid var(--grey); }
+  .log time { color: var(--muted); font-family: Consolas, monospace; font-size: 12px; margin-right: 6px; }
+  .log .quarantine, .log .attack_started { border-left-color: var(--red); }
+  .log .vax_issued { border-left-color: var(--amber); }
+  .log .vax_adopted, .log .blocked_first_packet { border-left-color: var(--blue); }
+  .log .vax_rejected, .log .cure_step { border-left-color: #a855f7; }
+  .log .heal, .log .learned, .log .reset { border-left-color: var(--green); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  button { font: inherit; font-size: 19px; font-weight: 700; color: var(--text); background: var(--panel2);
+    border: 2px solid var(--line); border-radius: 12px; padding: 14px 20px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:active { transform: translateY(1px); }
+  button.attack { background: #3b1218; border-color: #7f1d1d; }
+  button.bulbbtn { background: #3a2a0c; border-color: #92400e; }
+  button.cure { background: #2a1440; border-color: #6b21a8; }
+  button.reset { background: #0f2e1c; border-color: #166534; }
+  button.small { font-size: 15px; padding: 10px 14px; }
+  button kbd { font: 12px Consolas, monospace; color: var(--muted); margin-left: 8px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid var(--line);
+    padding: 10px 18px; border-radius: 10px; font-size: 15px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .vdot { position: fixed; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--amber);
+    box-shadow: 0 0 16px var(--amber), 0 0 4px white inset; pointer-events: none; z-index: 10; }
+  .modal { position: fixed; inset: 0; background: rgba(5,8,18,.75); display: grid; place-items: center; z-index: 20; padding: 16px; }
+  .modal[hidden] { display: none; }
+  .modal .panel { max-width: 720px; font-size: 19px; line-height: 1.5; }
+  .modal small { color: var(--muted); display: block; margin-top: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">HIVE<span>.</span></div>
+  <div class="tagline">an immune system inside every tiny device &mdash; peer-to-peer, offline, no cloud</div>
+  <div class="spacer"></div>
+  <span class="chip"><span class="dot" id="conn"></span><span id="connText">connecting</span></span>
+  <span class="chip"><span class="dot" id="attDot"></span><span id="attText">attacker</span></span>
+  <span class="chip"><span class="dot" id="dumbDot"></span><span id="dumbText">bulb sim</span></span>
+</header>
+
+<main>
+  <section class="tiles" id="tiles"></section>
+  <aside>
+    <div class="panel">
+      <h2>Time to immunity</h2>
+      <div class="tti" id="tti">&mdash;</div>
+      <div class="tti-sub" id="ttiSub">press an attack button</div>
+    </div>
+    <div class="panel">
+      <h2>Poison-proof vaccines</h2>
+      <ul class="defs" id="defs"></ul>
+    </div>
+    <div class="panel">
+      <h2>What just happened</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<div class="controls" id="controls"></div>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal" hidden>
+  <div class="panel"><h2>Incident explained</h2><div id="explainText"></div><small id="explainSrc"></small>
+    <div style="margin-top:14px"><button class="small" onclick="closeModal()">Close</button></div></div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const DEFENSES = [
+  ["forged", "Forged or tampered signature rejected"],
+  ["garbage", "Oversized / malformed vaccine rejected"],
+  ["replay", "Replayed old vaccine rejected"],
+  ["protected_target", "Vaccine against the hub refused"],
+  ["quorum", "One report is not enough (quorum)"],
+  ["autoimmune", "Vaccine spammer distrusted"],
+];
+let state = null, offset = 0, built = "", labels = {}, instantUntil = {};
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
+function label(id) {
+  if (labels[id]) return labels[id];
+  return {attacker: "ATTACKER", gateway: "Gateway", dashboard: "Operator", bulb: "Dumb bulb"}[id] || id;
+}
+function kindText(n) {
+  if (n.kind === "esp32") return "ESP32 &middot; on-chip model";
+  if (n.kind === "esp32-sim") return "ESP32 stand-in (simulated)";
+  return "Laptop &middot; Python agent";
+}
+
+// ---------------------------------------------------------------- tiles
+function buildTiles() {
+  const sig = state.nodes.map((n) => n.id).join(",");
+  if (sig === built) return;
+  built = sig;
+  labels = {};
+  state.nodes.forEach((n) => { labels[n.id] = n.label; });
+  $("tiles").innerHTML = state.nodes.map((n) => `
+    <div class="tile learning" id="tile-${n.id}" data-node="${n.id}">
+      <div class="t-head"><div class="t-name">${esc(n.label)}</div><div class="t-ip" id="ip-${n.id}"></div></div>
+      <div class="t-kind">${kindText(n)}</div>
+      <div><span class="pill learning" id="pill-${n.id}">WAITING</span>
+        <span class="light"><span class="bulb" id="light-${n.id}"></span>light</span></div>
+      <div class="badges" id="badges-${n.id}"></div>
+      <div class="score" id="score-${n.id}"></div>
+      <div class="counters" id="cnt-${n.id}"></div>
+      <div class="t-foot" id="foot-${n.id}"></div>
+    </div>`).join("") + `
+    <div class="tile offline" id="tile-bulb" data-node="bulb">
+      <div class="t-head"><div class="t-name">Dumb bulb</div><div class="t-ip" id="ip-bulb"></div></div>
+      <div class="t-kind">bought Wi-Fi bulb &middot; can't run Hive &middot; guarded by the router</div>
+      <div><span class="pill offline" id="pill-bulb">OFFLINE</span></div>
+      <div class="badges" id="badges-bulb"></div>
+      <div class="score" id="score-bulb"></div>
+      <div class="t-foot" id="foot-bulb">start gateway/guardian.py and tools/dumb_device.py</div>
+    </div>`;
+  buildControls();
+}
+
+function scoreBar(s) {
+  const thr = s.thr || 6, frac = Math.min(1, (s.score || 0) / (thr * 2));
+  const col = s.score > thr ? "var(--red)" : (s.score > thr * 0.6 ? "var(--amber)" : "var(--green)");
+  return `<div class="score-label"><span>anomaly score</span><span>${(s.score || 0).toFixed(1)} / ${thr}</span></div>
+    <div class="bar"><i style="width:${(frac * 100).toFixed(1)}%;background:${col}"></i><b></b></div>`;
+}
+function learnBar(p) {
+  return `<div class="score-label"><span>learning normal traffic</span><span>${Math.round(p * 100)}%</span></div>
+    <div class="bar learnbar"><i style="width:${(p * 100).toFixed(0)}%"></i></div>`;
+}
+
+function renderNode(n) {
+  const tile = $("tile-" + n.id), s = n.status;
+  const st = !n.online ? "offline" : (s ? s.state : "learning");
+  const im = state.immunity, immune = s && im.target && (s.blocklist || []).includes(im.target);
+  tile.className = "tile " + st + (immune && st !== "quarantined" ? " immune" : "") + (tile.classList.contains("hit") ? " hit" : "");
+  $("ip-" + n.id).textContent = n.ip || "";
+  const pill = $("pill-" + n.id);
+  pill.className = "pill " + st;
+  pill.textContent = st === "learning" && s && !s.learn ? "WAITING FOR HUB" : st.toUpperCase();
+  if (!s) { $("score-" + n.id).innerHTML = ""; return; }
+  $("light-" + n.id).className = "bulb" + (s.light ? " on" : "");
+  let badges = (s.blocklist || []).map((ip) => `<span class="badge immune">IMMUNE to ${esc(ip)}</span>`);
+  badges = badges.concat((s.pending || []).map(([ip, k]) => `<span class="badge pending">pending ${k}/${s.quorum || state.quorum}: ${esc(ip)}</span>`));
+  if ((instantUntil[n.id] || 0) > Date.now()) badges.unshift(`<span class="badge instant">BLOCKED INSTANTLY</span>`);
+  $("badges-" + n.id).innerHTML = badges.join("");
+  $("score-" + n.id).innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
+  $("cnt-" + n.id).innerHTML = [["blocked", s.blocked], ["vax out", s.vax_issued], ["adopted", s.vax_adopted], ["rejected", s.vax_rejected]]
+    .map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
+  const det = s.det === "autoencoder" ? "tiny autoencoder" : "z-score baseline";
+  $("foot-" + n.id).innerHTML = (n.kind.startsWith("esp32") ? `model: ${det}, <strong>${s.model_bytes} bytes</strong> &middot; runs on a &#8377;500 chip`
+    : `model: ${det}, ${s.model_bytes} bytes`);
+}
+
+function renderBulb() {
+  const b = state.bulb, s = b.status, tile = $("tile-bulb");
+  const st = !b.online || !s ? "offline" : s.state;
+  tile.className = "tile " + st + (tile.classList.contains("hit") ? " hit" : "");
+  const pill = $("pill-bulb");
+  pill.className = "pill " + st;
+  pill.textContent = st === "quarantined" ? "QUARANTINED" : st.toUpperCase();
+  if (!s) return;
+  $("ip-bulb").textContent = s.ip || "";
+  $("badges-bulb").innerHTML = st === "quarantined" ? `<span class="badge gw">isolated by the gateway</span>` : "";
+  $("score-bulb").innerHTML = st === "learning" ? learnBar(s.learn || 0) : scoreBar(s);
+  const f = s.features || [0, 0];
+  $("foot-bulb").innerHTML = `${(+f[0]).toFixed(1)} msgs/s &middot; ${(+f[1]).toFixed(0)} destinations/s &middot; watched by gateway ${esc(s.by || "")}`;
+}
+
+function renderSide() {
+  const im = state.immunity, now = Date.now() / 1000 + offset, tti = $("tti"), sub = $("ttiSub");
+  const total = state.nodes.filter((n) => n.online).length, got = Object.keys(im.nodes || {}).length;
+  if (!im.t0) { tti.className = "tti"; tti.textContent = "—"; sub.textContent = "press an attack button"; }
+  else if (!im.t1) { tti.className = "tti live"; tti.textContent = Math.max(0, now - im.t0).toFixed(1) + " s";
+    sub.textContent = `spreading immunity to ${im.target}: ${got}/${total} devices immune`; }
+  else { tti.className = "tti done"; tti.textContent = (im.t1 - im.t0).toFixed(1) + " s";
+    sub.textContent = `all ${total} devices immune to ${im.target} — from first attack packet to last device`; }
+  $("defs").innerHTML = DEFENSES.map(([k, txt]) => `<li class="${state.defenses[k] ? "lit" : ""}"><i>${state.defenses[k] ? "✓" : ""}</i>${txt}</li>`).join("");
+  const a = state.attacker, d = state.dumb;
+  $("attDot").className = "dot" + (a.online ? (a.busy ? " warn" : " on") : "");
+  $("attText").textContent = a.online ? `attacker ${a.ip}${a.busy ? " (attacking)" : ""}` : "attacker offline";
+  $("dumbDot").className = "dot" + (d.online ? " on" : "");
+  $("dumbText").textContent = d.online ? `bulb sim ${d.ip}` : "bulb sim offline";
+}
+
+function render() {
+  if (!state) return;
+  buildTiles();
+  state.nodes.forEach(renderNode);
+  renderBulb();
+  renderSide();
+}
+
+// ---------------------------------------------------------------- event log
+let lastLine = null;
+function sentence(kind, who, d) {
+  switch (kind) {
+    case "quarantine": return `<b>${who}</b> detected an attack and quarantined itself &mdash; ${d}`;
+    case "vax_issued": return `<b>${who}</b> broadcast a signed vaccine: ${d}`;
+    case "vax_pending": return d.includes("already blocked") ? `<b>${who}</b>: ${d}` : `<b>${who}</b>: vaccine ${d} &mdash; waiting for a second opinion`;
+    case "vax_adopted": return `<b>${who}</b> is now <b>IMMUNE</b>: ${d}`;
+    case "vax_rejected": return `<b>${who}</b> rejected a vaccine &mdash; <b>${d.split(":")[0]}</b>${d.includes(":") ? ":" + d.slice(d.indexOf(":") + 1) : ""}`;
+    case "blocked_first_packet": return `<b>${who}</b> ${d}`;
+    case "heal": return `<b>${who}</b> healed &mdash; ${d}`;
+    case "learned": return `<b>${who}</b> learned its normal traffic (${d})`;
+    case "attack_started": return `<b>ATTACKER</b> ${d}`;
+    case "attack_finished": return `<b>ATTACKER</b> ${d}`;
+    case "cure_step": return `<b>ATTACKER</b> poisons the vaccine channel &mdash; ${d}`;
+    default: return `<b>${who}</b> ${kind.replace(/_/g, " ")}: ${d}`;
+  }
+}
+function addLog(e, animate) {
+  if (e.kind === "unblock" || e.kind === "attack_finished") return;
+  const key = e.kind + "|" + e.detail;
+  const t = new Date(e.ts * 1000).toLocaleTimeString([], {hour12: false});
+  const log = $("log");
+  if (lastLine && lastLine.key === key && Math.abs(e.ts - lastLine.ts) < 2.5 && !lastLine.nodes.includes(e.node)) {
+    lastLine.nodes.push(e.node);
+    lastLine.el.innerHTML = `<time>${t}</time>` + sentence(e.kind, lastLine.nodes.map(label).map(esc).join(", "), esc(e.detail));
+  } else {
+    const el = document.createElement("div");
+    el.className = e.kind;
+    el.innerHTML = `<time>${t}</time>` + sentence(e.kind, esc(label(e.node)), esc(e.detail));
+    log.prepend(el);
+    lastLine = {key, ts: e.ts, nodes: [e.node], el};
+    while (log.children.length > 80) log.lastChild.remove();
+  }
+  if (!animate) return;
+  if (e.kind === "vax_issued") flyVaccine(e.node === "gateway" ? "bulb" : e.node);
+  if (e.kind === "quarantine" || e.kind === "vax_adopted") bump(e.node === "gateway" ? "bulb" : e.node);
+  if (e.kind === "blocked_first_packet") {
+    const st = state && state.nodes.find((n) => n.id === e.node);
+    if (st && st.status && st.status.state !== "quarantined") { instantUntil[e.node] = Date.now() + 8000; bump(e.node); }
+  }
+}
+
+function center(id) {
+  const el = $("tile-" + id);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return [r.left + r.width / 2, r.top + r.height / 2];
+}
+function bump(id) {
+  const el = $("tile-" + id);
+  if (!el) return;
+  el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit");
+  setTimeout(() => el.classList.remove("hit"), 650);
+}
+function flyVaccine(from) {
+  const a = center(from);
+  if (!a || !state) return;
+  state.nodes.filter((n) => n.id !== from).forEach((n, i) => {
+    const b = center(n.id);
+    if (!b) return;
+    const dot = document.createElement("div");
+    dot.className = "vdot";
+    dot.style.left = a[0] + "px"; dot.style.top = a[1] + "px";
+    document.body.appendChild(dot);
+    const anim = dot.animate([
+      {transform: "translate(0,0) scale(.6)", opacity: 1},
+      {transform: `translate(${(b[0] - a[0]) / 2}px, ${(b[1] - a[1]) / 2 - 60}px) scale(1.3)`, opacity: 1},
+      {transform: `translate(${b[0] - a[0]}px, ${b[1] - a[1]}px) scale(.8)`, opacity: .9},
+    ], {duration: 900, delay: i * 90, easing: "ease-in-out"});
+    anim.onfinish = () => { dot.remove(); bump(n.id); };
+  });
+}
+
+// ---------------------------------------------------------------- controls
+const KEYS = {};
+function buildControls() {
+  const btns = state.nodes.map((n, i) => ({cls: "attack", text: `Attack ${n.label}`, key: String(i + 1), path: `scenario/attack/${n.id}`}));
+  btns.push({cls: "bulbbtn", text: "Infect dumb bulb", key: "b", path: "scenario/infect_bulb"});
+  btns.push({cls: "cure", text: "Attack the cure", key: "c", path: "scenario/cure"});
+  btns.push({cls: "reset", text: "Reset", key: "r", path: "reset"});
+  btns.push({cls: "small", text: "Explain incident", key: "e", path: "explain"});
+  btns.push({cls: "small", text: "Relearn", key: "", path: "relearn"});
+  $("controls").innerHTML = "";
+  btns.forEach((b) => {
+    const el = document.createElement("button");
+    el.className = b.cls;
+    el.innerHTML = esc(b.text) + (b.key ? `<kbd>${b.key}</kbd>` : "");
+    el.onclick = () => act(b.path);
+    $("controls").appendChild(el);
+    if (b.key) KEYS[b.key] = b.path;
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || !$("modal").hidden) { if (e.key === "Escape") closeModal(); return; }
+  const path = KEYS[e.key.toLowerCase()];
+  if (path) { e.preventDefault(); act(path); }
+});
+
+async function act(path) {
+  if (path === "explain") return explain();
+  try {
+    const r = await fetch("/api/" + path, {method: "POST"});
+    const j = await r.json();
+    toast(j.message || (r.ok ? "ok" : "failed"), !r.ok);
+  } catch (err) { toast("dashboard not reachable", true); }
+}
+async function explain() {
+  $("explainText").textContent = "Asking the local model…";
+  $("explainSrc").textContent = "";
+  $("modal").hidden = false;
+  try {
+    const j = await (await fetch("/api/explain", {method: "POST"})).json();
+    $("explainText").textContent = j.text;
+    $("explainSrc").textContent = "source: " + j.source;
+  } catch (err) { $("explainText").textContent = "dashboard not reachable"; }
+}
+function closeModal() { $("modal").hidden = true; }
+let toastTimer = null;
+function toast(msg, bad) {
+  const t = $("toast");
+  t.textContent = msg; t.style.borderColor = bad ? "var(--red)" : "var(--line)";
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+// ---------------------------------------------------------------- live feed
+function connect() {
+  const es = new EventSource("/events");
+  es.addEventListener("state", (m) => {
+    state = JSON.parse(m.data);
+    offset = state.now - Date.now() / 1000;
+    $("conn").className = "dot on"; $("connText").textContent = "live";
+    render();
+  });
+  es.addEventListener("backlog", (m) => { $("log").innerHTML = ""; lastLine = null; JSON.parse(m.data).forEach((e) => addLog(e, false)); });
+  es.addEventListener("log", (m) => addLog(JSON.parse(m.data), true));
+  es.onerror = () => { $("conn").className = "dot warn"; $("connText").textContent = "reconnecting"; };
+}
+setInterval(() => { if (state) renderSide(); }, 100);
+connect();
+</script>
+</body>
+</html>
