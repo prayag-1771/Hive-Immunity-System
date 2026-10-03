@@ -220,6 +220,8 @@ Baselines are saved (Python: `data/state/`, ESP32: flash), so restarts skip lear
 
 ## Demo script (about 3 minutes)
 
+![The seven demo steps on the one-laptop simulation](docs/demo.gif)
+
 | Step | Press | What the judges see |
 |---|---|---|
 | 1 | — | Green tiles: ESP32, Laptop A, Laptop B and the dumb bulb. "Everything is normal." |

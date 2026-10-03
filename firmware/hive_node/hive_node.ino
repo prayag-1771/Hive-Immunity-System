@@ -607,7 +607,7 @@ static void respond(uint32_t now) {
   if (state != QUARANTINED) {
     state = QUARANTINED;
     calm = false;
-    snprintf(msg, sizeof msg, "score %.1f > %g; culprit %s", score, (double)DET_THRESHOLD, c ? cS : "unknown");
+    snprintf(msg, sizeof msg, "score %.1f > %.1f; culprit %s", score, (double)DET_THRESHOLD, c ? cS : "unknown");
     event("quarantine", msg, c);
   }
   if (!c) return;

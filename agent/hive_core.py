@@ -588,7 +588,7 @@ class HiveNode:
         if self.state != "quarantined":
             self.state = "quarantined"
             self.calm_since = None
-            self._event("quarantine", f"score {self.score:.1f} > {self.detector.threshold:g}; "
+            self._event("quarantine", f"score {self.score:.1f} > {self.detector.threshold:.1f}; "
                                       f"culprit {culprit or 'unknown'}", now, culprit)
         if culprit is None:
             return
