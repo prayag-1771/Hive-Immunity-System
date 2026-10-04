@@ -321,6 +321,7 @@ class BleWatch {
 #ifdef ARDUINO
 #include <BLEDevice.h>
 #include <BLEServer.h>
+#include <esp_coexist.h>
 #include <esp_gap_ble_api.h>
 
 namespace hive {
@@ -358,7 +359,8 @@ class HubServerCallbacks : public BLEServerCallbacks {
     r.kind = BLE_RX_CONNECT;
     memcpy(r.addr, p->connect.remote_bda, 6);
     blePush(r);
-    BLEDevice::startAdvertising();  // keep accepting other Bluetooth devices
+    // No re-advertising here: doing it while a link is being set up costs the radio time the
+    // new link needs. Advertising restarts when a device disconnects.
   }
   void onDisconnect(BLEServer*, esp_ble_gatts_cb_param_t* p) override {
     BleRx r = {};
@@ -387,6 +389,10 @@ inline void bleGlueBegin(const char* name) {
   // LE-only (and frees RAM).
   btMemRelease(BT_MODE_CLASSIC_BT);
   BLEDevice::init(name);
+  // The ESP32 has one 2.4 GHz radio for Wi-Fi and Bluetooth. Hive's Wi-Fi traffic is a few
+  // small packets a second, while a Bluetooth link drops if it misses its first connection
+  // events, so Bluetooth gets the larger share of radio time.
+  esp_coex_preference_set(ESP_COEX_PREFER_BT);
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new HubServerCallbacks());
   BLEService* service = server->createService(BLE_SERVICE_UUID);
