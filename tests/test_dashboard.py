@@ -129,6 +129,24 @@ class DashboardState(unittest.TestCase):
         self.assertIn("Bluetooth hub cut off", text)
         self.assertIn("router noticed a Wi-Fi bulb", text)
 
+    def test_condensed_log_keeps_the_attack_visible(self):
+        self.event("esp32", "quarantine", "score 14 > 2.7; culprit 10.0.0.66", ATT)
+        for _ in range(30):
+            for n in ("esp32", "lapA", "lapB"):
+                self.event(n, "vax_rejected", "distrusted: rogue is in autoimmune timeout")
+        lines = server.Dashboard._condense(list(self.d.events))
+        self.assertEqual(len(lines), 2)
+        self.assertIn("quarantine", lines[0])
+        self.assertIn("esp32, lapA, lapB: vax rejected: distrusted", lines[1])
+        self.assertIn("(x90)", lines[1])
+
+    def test_explain_falls_back_instantly_when_model_not_loaded(self):
+        self.d.cfg["explain"] = {"url": "http://127.0.0.1:9"}  # nothing listens there
+        start = time.time()
+        r = self.d.explain()
+        self.assertLess(time.time() - start, 5)
+        self.assertTrue(r["source"].startswith("template"))
+
     def test_template_explanation_grammar(self):
         self.event("attacker", "attack_started", "", ATT, ts=1.0)
         self.event("esp32", "quarantine", "score", ATT)

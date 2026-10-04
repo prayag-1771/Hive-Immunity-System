@@ -257,18 +257,50 @@ class Dashboard:
             return json.loads(r.read())
 
     def warm_model(self):
-        """Load the model once at start-up, so a judge's first click doesn't wait for it."""
+        """Load the model once at start-up, so a judge's first click doesn't wait for it.
+
+        The first load on a machine can take minutes (CUDA compiles its kernels), so this waits
+        generously; a client that gives up would make Ollama abort the load.
+        """
         try:
-            self._ollama({}, timeout=300)
+            self._ollama({}, timeout=1200)
             print("explain: local model loaded", flush=True)
         except Exception:
             print("explain: no local model reachable; Explain incident will use the template", flush=True)
 
+    def _model_loaded(self):
+        ex = self.cfg.get("explain", {})
+        try:
+            with urllib.request.urlopen(ex.get("url", "http://127.0.0.1:11434") + "/api/ps", timeout=2) as r:
+                loaded = {m.get("name") for m in json.loads(r.read()).get("models", [])}
+            return ex.get("model", "gemma4:e2b-it-qat") in loaded
+        except Exception:
+            return False
+
+    @staticmethod
+    def _condense(events, keep=45):
+        """Merge repeats (the same event from several nodes) so floods don't crowd out the attack."""
+        lines = []
+        for e in events:
+            text = f"{e['kind'].replace('_', ' ')}: {e['detail']}"
+            if lines and lines[-1][1] == text:
+                if e["node"] not in lines[-1][0]:
+                    lines[-1][0].append(e["node"])
+                lines[-1][2] += 1
+            else:
+                lines.append([[e["node"]], text, 1])
+        out = [f"- {', '.join(nodes)}: {text}" + (f" (x{n})" if n > len(nodes) else "") for nodes, text, n in lines]
+        return out[-keep:]
+
     def explain(self):
         with self.lock:
-            recent = list(self.events)[-40:]
+            everything = list(self.events)
             states = {n: (self.nodes[n]["status"] or {}).get("state", "offline") for n in self.order}
-        log = "\n".join(f"- {e['node']}: {e['kind'].replace('_', ' ')}: {e['detail']}" for e in recent)
+        recent = everything[-150:]
+        if not self._model_loaded():
+            return {"source": "template (Gemma 4 is still loading or not running)",
+                    "text": self._template(everything, states)}
+        log = "\n".join(self._condense(recent))
         prompt = (
             "You narrate a live security demo for judges who are not security experts. The system: small "
             "devices each learn their normal network traffic, quarantine themselves when attacked, and send "
@@ -286,7 +318,7 @@ class Dashboard:
                 return {"source": f"{ex.get('model', 'gemma4:e2b-it-qat')} (local, offline)", "text": text}
         except Exception:
             pass
-        return {"source": "template (no local model reachable)", "text": self._template(recent, states)}
+        return {"source": "template (no local model reachable)", "text": self._template(everything, states)}
 
     def _template(self, events, states):
         detected = sorted({label_for(self.entries[e["node"]]) for e in events
