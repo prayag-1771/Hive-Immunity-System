@@ -62,9 +62,17 @@ class Bulb:
         self.sock = net.udp_socket("0.0.0.0", self.port, broadcast=True)
         self.my_ip = net.guess_lan_ip()
         self.dash = hc.static_ip(cfg["dashboard"].get("ip"))
+        self._logged = {}
 
     def log(self, text):
         print(f"{time.strftime('%H:%M:%S')} [blebulb] {text}", flush=True)
+
+    def log_every(self, key, seconds, text):
+        """Log a repeating condition at most once per `seconds`."""
+        now = time.monotonic()
+        if now - self._logged.get(key, -seconds) >= seconds:
+            self._logged[key] = now
+            self.log(text)
 
     # -- control channel (dashboard triggers), in a thread: plain sockets, no asyncio
 
@@ -104,6 +112,7 @@ class Bulb:
                 lambda d, ad: SERVICE in [u.lower() for u in ad.service_uuids], timeout=8.0,
                 bluez={"filters": {"Transport": "le"}})
             if device is None:
+                self.log_every("scan", 30, "hub not seen yet, still scanning")
                 continue
             gone = asyncio.Event()
             client = BleakClient(device, disconnected_callback=lambda _c: gone.set(), timeout=15.0)
@@ -119,6 +128,8 @@ class Bulb:
                     # BlueZ cached the hub as a classic device: forget it, rediscover over LE.
                     subprocess.run(["bluetoothctl", "remove", device.address], capture_output=True, timeout=10)
                     self.log(f"cleared a stale classic-Bluetooth entry for {device.address}")
+                elif self.state != "connected":
+                    self.log_every("connect", 10, f"could not connect to the hub: {type(e).__name__} {e}")
                 elif not gone.is_set():
                     self.log(f"link error: {e}")
             finally:
