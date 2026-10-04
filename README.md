@@ -15,6 +15,10 @@ Peer-to-peer. Offline. No cloud. Runs on a ₹500 ESP32.
 
 ![Live dashboard mid-demo: the ESP32 and Laptop B detected the attack, Laptop A adopted their vaccines and blocked the attacker on its first packet, and the gateway isolated an infected bulb](docs/dashboard.png)
 
+**Pitch deck:** [docs/Hive-pitch.pptx](docs/Hive-pitch.pptx) (11 slides with speaker notes) ·
+**Backup video:** [docs/demo-backup-simulation.mp4](docs/demo-backup-simulation.mp4) (53 s;
+re-record on the real setup with `python tools/record_dashboard.py`)
+
 ---
 
 ## The problem
