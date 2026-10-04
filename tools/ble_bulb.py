@@ -141,10 +141,15 @@ class Bulb:
                 continue
             unseen_since = time.monotonic()
             gone = asyncio.Event()
-            client = BleakClient(device, disconnected_callback=lambda _c: gone.set(), timeout=15.0)
+            # Bind this attempt's event (ev=gone): a plain closure would read the *variable*, so a
+            # late disconnect callback from an earlier failed attempt would flag this live link.
+            client = BleakClient(device, disconnected_callback=lambda _c, ev=gone: ev.set(), timeout=15.0)
             started = time.monotonic()
             try:
                 await client.connect()
+                # BlueZ retries a failing link internally and bleak reports each retry as a
+                # disconnect on this same client: only what happens from now on counts.
+                gone.clear()
                 started = time.monotonic()
                 self.state = "connected"
                 self.log(f"connected to hub {device.address} ({device.name})")

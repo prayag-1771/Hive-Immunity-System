@@ -30,13 +30,14 @@ fi
 sudo -u "${SUDO_USER:-pi}" "$VENV/bin/pip" install -q bleak
 
 # Bluetooth link timing that tolerates the ESP32 sharing one radio between Wi-Fi and
-# Bluetooth: with BlueZ's default 420 ms supervision timeout the link drops while it is
-# being set up ("Connection Failed to be Established", 0x3e). 4 s fixes it.
+# Bluetooth. A new link must hear the ESP32 within 6 connection events ("Connection Failed
+# to be Established", 0x3e): 100-150 ms intervals give it 0.6-0.9 s instead of 0.2 s, and a
+# 4 s supervision timeout replaces BlueZ's 420 ms for the link once it is up.
 CONF=/etc/bluetooth/main.conf
-if [ -f "$CONF" ] && ! grep -q "^ConnectionSupervisionTimeout=400" "$CONF"; then
+if [ -f "$CONF" ] && ! grep -q "^MinConnectionInterval=80" "$CONF"; then
     [ -f "$CONF.hive-backup" ] || cp "$CONF" "$CONF.hive-backup"
-    sed -i -e 's/^#\{0,1\}MinConnectionInterval=.*/MinConnectionInterval=24/' \
-           -e 's/^#\{0,1\}MaxConnectionInterval=.*/MaxConnectionInterval=40/' \
+    sed -i -e 's/^#\{0,1\}MinConnectionInterval=.*/MinConnectionInterval=80/' \
+           -e 's/^#\{0,1\}MaxConnectionInterval=.*/MaxConnectionInterval=120/' \
            -e 's/^#\{0,1\}ConnectionLatency=.*/ConnectionLatency=0/' \
            -e 's/^#\{0,1\}ConnectionSupervisionTimeout=.*/ConnectionSupervisionTimeout=400/' "$CONF"
     systemctl restart bluetooth
