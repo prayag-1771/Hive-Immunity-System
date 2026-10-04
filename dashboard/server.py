@@ -250,8 +250,10 @@ class Dashboard:
     def _ollama(self, payload, timeout):
         ex = self.cfg.get("explain", {})
         url = ex.get("url", "http://127.0.0.1:11434") + "/api/generate"
+        # keep_alive -1: stay loaded for the whole demo. think False: Gemma 4 would otherwise spend
+        # its token budget on hidden reasoning and return an empty answer.
         body = json.dumps({"model": ex.get("model", "gemma4:e2b-it-qat"), "stream": False,
-                           "keep_alive": -1, **payload}).encode()  # -1: stay loaded for the whole demo
+                           "keep_alive": -1, "think": False, **payload}).encode()
         req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())

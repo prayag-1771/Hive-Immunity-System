@@ -29,6 +29,19 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 sudo -u "${SUDO_USER:-pi}" "$VENV/bin/pip" install -q bleak
 
+# Bluetooth link timing that tolerates the ESP32 sharing one radio between Wi-Fi and
+# Bluetooth: with BlueZ's default 420 ms supervision timeout the link drops while it is
+# being set up ("Connection Failed to be Established", 0x3e). 4 s fixes it.
+CONF=/etc/bluetooth/main.conf
+if [ -f "$CONF" ] && ! grep -q "^ConnectionSupervisionTimeout=400" "$CONF"; then
+    [ -f "$CONF.hive-backup" ] || cp "$CONF" "$CONF.hive-backup"
+    sed -i -e 's/^#\{0,1\}MinConnectionInterval=.*/MinConnectionInterval=24/' \
+           -e 's/^#\{0,1\}MaxConnectionInterval=.*/MaxConnectionInterval=40/' \
+           -e 's/^#\{0,1\}ConnectionLatency=.*/ConnectionLatency=0/' \
+           -e 's/^#\{0,1\}ConnectionSupervisionTimeout=.*/ConnectionSupervisionTimeout=400/' "$CONF"
+    systemctl restart bluetooth
+fi
+
 sed -e "s#/home/pi/Hive-Immunity-System#$REPO#g" "$HERE/hive-pi.service" > /etc/systemd/system/hive-pi.service
 if [ ! -f /etc/default/hive-pi ]; then
     printf 'HIVE_REPO=%s\nHIVE_PY=%s\n' "$REPO" "$VENV/bin/python" > /etc/default/hive-pi
