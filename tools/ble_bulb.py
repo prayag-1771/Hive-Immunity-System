@@ -18,6 +18,7 @@ import json
 import os
 import random
 import select
+import subprocess
 import sys
 import threading
 import time
@@ -98,8 +99,10 @@ class Bulb:
 
         while True:
             self.state = "scanning" if self.state not in ("cut off", "refused") else self.state
+            # LE-only discovery, so BlueZ never mistakes the hub for a classic Bluetooth device.
             device = await BleakScanner.find_device_by_filter(
-                lambda d, ad: SERVICE in [u.lower() for u in ad.service_uuids], timeout=8.0)
+                lambda d, ad: SERVICE in [u.lower() for u in ad.service_uuids], timeout=8.0,
+                bluez={"filters": {"Transport": "le"}})
             if device is None:
                 continue
             gone = asyncio.Event()
@@ -112,7 +115,11 @@ class Bulb:
                 self.log(f"connected to hub {device.address} ({device.name})")
                 await self.talk(client, gone)
             except (BleakError, asyncio.TimeoutError, OSError) as e:
-                if not gone.is_set():
+                if "br-connection" in str(e):
+                    # BlueZ cached the hub as a classic device: forget it, rediscover over LE.
+                    subprocess.run(["bluetoothctl", "remove", device.address], capture_output=True, timeout=10)
+                    self.log(f"cleared a stale classic-Bluetooth entry for {device.address}")
+                elif not gone.is_set():
                     self.log(f"link error: {e}")
             finally:
                 try:

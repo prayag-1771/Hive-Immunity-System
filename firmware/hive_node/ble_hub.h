@@ -381,6 +381,11 @@ class HubReportCallbacks : public BLECharacteristicCallbacks {
 };
 
 inline void bleGlueBegin(const char* name) {
+  // LE only: with classic Bluetooth enabled (the core's default BTDM mode), Linux/BlueZ
+  // finds the ESP32 by classic inquiry too and tries a classic connection, which fails
+  // ("br-connection-canceled"). Releasing classic memory makes the controller start
+  // LE-only (and frees RAM).
+  btMemRelease(BT_MODE_CLASSIC_BT);
   BLEDevice::init(name);
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new HubServerCallbacks());
