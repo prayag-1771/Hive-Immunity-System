@@ -16,8 +16,8 @@ Peer-to-peer. Offline. No cloud. Runs on a ₹500 ESP32.
 ![Live dashboard mid-demo: the ESP32 and Laptop B detected the attack, Laptop A adopted their vaccines and blocked the attacker on its first packet, and the gateway isolated an infected bulb](docs/dashboard.png)
 
 **Pitch deck:** [docs/Hive-pitch.pptx](docs/Hive-pitch.pptx) (11 slides with speaker notes) ·
-**Backup video:** [docs/demo-backup-simulation.mp4](docs/demo-backup-simulation.mp4) (53 s;
-re-record on the real setup with `python tools/record_dashboard.py`)
+**Backup video:** [docs/demo-backup-hardware.mp4](docs/demo-backup-hardware.mp4) (61 s, all 8 steps on
+the real ESP32 + Raspberry Pi + laptop; re-record with `python tools/record_dashboard.py`)
 
 ---
 
@@ -244,6 +244,12 @@ This is the configuration verified end to end on real hardware, on a phone hotsp
 | Raspberry Pi 5 | Laptop B node, gateway (nftables), attacker, Wi-Fi bulb, Bluetooth bulb | automatically at boot (hive-pi service) |
 | ESP32 DevKit (CP2102) | on-chip node + Bluetooth hub | flashed once, joins the hotspot by itself |
 
+All 8 demo steps pass on this setup: the ESP32 quarantines itself in about 2 s, every
+device is immune in about 5 s, Laptop A blocks the attacker's first packet, the Pi's
+nftables set isolates the Wi-Fi bulb, the ESP32's Bluetooth hub cuts off the flooding
+Bluetooth bulb in about 2 s, every poisoned vaccine is rejected, and Reset heals
+everything. Gemma 4 explains the run offline in about 10 s.
+
 The attacker and the bulb must not share an address with a node, so the Pi gives itself
 two extra temporary addresses. At every boot, [deploy/pi/hive-pi.sh](deploy/pi/hive-pi.sh)
 does the following:
@@ -260,7 +266,7 @@ sudo sh deploy/pi/install.sh          # venv + bleak, enables hive-pi.service
 journalctl -u hive-pi -f              # watch it
 ```
 
-![Dashboard on real hardware: the ESP32 detected the attack with its 152-byte model, the Pi (Laptop B) sent the second report, the laptop adopted and blocked the attacker on its first packet, and the gateway isolated the bulb](docs/dashboard-hardware.png)
+![Dashboard on real hardware: every node is immune to the attacker, the Pi's gateway has isolated the Wi-Fi bulb with nftables, and the ESP32's Bluetooth hub has cut off the flooding Bluetooth bulb](docs/dashboard-hardware.png)
 
 Before every demo run, press **Reset** (blocks last 5 minutes, and a node that already
 blocks the attacker silently drops the attack). If a device was attacked while it was
@@ -376,11 +382,13 @@ on a phone hotspot.
 - [x] Attacking Laptop B → quorum → Laptop A adopts; time to immunity shown (about 6 s)
 - [x] Attacking Laptop A → first packet blocked, no quarantine
 - [x] Forged, oversized, flood and single-report vaccines rejected with visible reasons
-- [x] Dumb bulb infection → gateway quarantine
+- [x] Dumb bulb infection → gateway quarantine (app-level and an nftables set on the Pi)
+- [x] Bluetooth bulb flooding → cut off by the ESP32's Bluetooth hub, reconnections refused
 - [x] Reset returns everything to green without restarting devices
-- [x] README, LICENSE, public repo, CI
+- [x] Gemma 4 (local, offline) explains the incident
+- [x] README, LICENSE, public repo, CI, pitch deck, backup video of the dashboard
 - [ ] Works with no internet at all: needs one run with the phone's mobile data switched off
-- [ ] Backup video: record the dashboard and the ESP32's LED once the setup is final
+- [ ] Phone video of the real devices (the ESP32's LED) for the pitch
 
 ## Repository layout
 

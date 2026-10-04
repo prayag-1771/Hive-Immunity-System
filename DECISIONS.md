@@ -93,3 +93,16 @@ Choices made while building, where the brief left room. Newest at the bottom.
 26. **Gemma model: `gemma4:e2b-it-qat`**, the smallest Gemma 4 build in Ollama's library
     (4.3 GB). It replaces the unverified `gemma4` tag of decision 19. Ollama runs from its
     portable zip, so nothing is installed system-wide.
+27. **Bluetooth on real hardware needed four fixes**, all found with `btmon` and serial logs:
+    the hub starts its controller LE-only (BlueZ otherwise tried classic Bluetooth),
+    prefers Bluetooth for radio time (`esp_coex_preference_set`), doesn't advertise during
+    link setup, and the Pi uses 100-150 ms connection intervals with a 4 s supervision
+    timeout so a new link survives the ESP32's Wi-Fi time-slicing.
+28. **The simulated Bluetooth bulb had two event-flag bugs**: a disconnect callback that read
+    a reassigned variable, and BlueZ's internal connection retries reported as disconnects
+    on the same client. Both made the bulb drop its own healthy link.
+29. **Gemma requests set `think: false`.** Gemma 4 otherwise spends its token budget on hidden
+    reasoning and returns an empty answer. The first load on a machine takes minutes while
+    CUDA compiles its kernels, so the dashboard warms the model in the background, keeps it
+    loaded, and answers from the template until it is ready. Ollama runs with a 4 GB CUDA
+    kernel cache (`CUDA_CACHE_MAXSIZE`) so later starts are fast.
