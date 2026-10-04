@@ -780,6 +780,7 @@ static void bleService(uint32_t now) {
     else ble.onWrite(r.addr, r.data, r.len < sizeof r.data ? r.len : sizeof r.data, r.len, now);
   }
   ble.tick(now);
+  hive::bleGlueTick(now);
   uint8_t kick[6];
   while (ble.popKick(kick)) hive::bleGlueDisconnect(kick);
   hive::BleWatch::Event e;

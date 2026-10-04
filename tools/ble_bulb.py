@@ -101,10 +101,32 @@ class Bulb:
 
     # -- Bluetooth side
 
+    def drop_stale_links(self):
+        """Release links BlueZ still holds to the hub (e.g. after this process was restarted).
+
+        BlueZ keeps an LE link up after its client dies, and the hub doesn't advertise while
+        it thinks the bulb is connected, so a fresh run would never see it.
+        """
+        try:
+            out = subprocess.run(["bluetoothctl", "devices", "Connected"], capture_output=True,
+                                 text=True, timeout=10).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "Device":
+                    info = subprocess.run(["bluetoothctl", "info", parts[1]], capture_output=True,
+                                          text=True, timeout=10).stdout
+                    if SERVICE in info.lower():
+                        subprocess.run(["bluetoothctl", "disconnect", parts[1]], capture_output=True, timeout=15)
+                        self.log(f"released a stale link to the hub {parts[1]}")
+        except (OSError, subprocess.SubprocessError):
+            pass
+
     async def run(self):
         from bleak import BleakClient, BleakScanner
         from bleak.exc import BleakError
 
+        self.drop_stale_links()
+        unseen_since = time.monotonic()
         while True:
             self.state = "scanning" if self.state not in ("cut off", "refused") else self.state
             # LE-only discovery, so BlueZ never mistakes the hub for a classic Bluetooth device.
@@ -113,7 +135,11 @@ class Bulb:
                 bluez={"filters": {"Transport": "le"}})
             if device is None:
                 self.log_every("scan", 30, "hub not seen yet, still scanning")
+                if time.monotonic() - unseen_since > 30:
+                    self.drop_stale_links()
+                    unseen_since = time.monotonic()
                 continue
+            unseen_since = time.monotonic()
             gone = asyncio.Event()
             client = BleakClient(device, disconnected_callback=lambda _c: gone.set(), timeout=15.0)
             started = time.monotonic()

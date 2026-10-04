@@ -330,6 +330,7 @@ static portMUX_TYPE g_bleMux = portMUX_INITIALIZER_UNLOCKED;
 static const int BLE_QUEUE = 64;
 static BleRx g_bleQueue[BLE_QUEUE];
 static volatile int g_bleHead = 0, g_bleTail = 0;
+static volatile uint32_t g_bleReadvertiseAt = 0;  // millis() when to advertise again, 0 = no
 
 static void blePush(const BleRx& r) {
   portENTER_CRITICAL(&g_bleMux);
@@ -359,8 +360,10 @@ class HubServerCallbacks : public BLEServerCallbacks {
     r.kind = BLE_RX_CONNECT;
     memcpy(r.addr, p->connect.remote_bda, 6);
     blePush(r);
-    // No re-advertising here: doing it while a link is being set up costs the radio time the
-    // new link needs. Advertising restarts when a device disconnects.
+    // Not right now: advertising while a link is being set up costs the radio time the new
+    // link needs. bleGlueTick() resumes it a few seconds later so other devices can join.
+    uint32_t at = millis() + 3000;
+    g_bleReadvertiseAt = at ? at : 1;
   }
   void onDisconnect(BLEServer*, esp_ble_gatts_cb_param_t* p) override {
     BleRx r = {};
@@ -404,6 +407,15 @@ inline void bleGlueBegin(const char* name) {
   adv->addServiceUUID(BLE_SERVICE_UUID);
   adv->setScanResponse(true);
   BLEDevice::startAdvertising();
+}
+
+// Called from loop(): resume advertising once a new link has settled.
+inline void bleGlueTick(uint32_t now) {
+  uint32_t at = g_bleReadvertiseAt;
+  if (at && (int32_t)(now - at) >= 0) {
+    g_bleReadvertiseAt = 0;
+    BLEDevice::startAdvertising();
+  }
 }
 
 // Cut the radio link itself (BLEServer::disconnect only closes the GATT session).

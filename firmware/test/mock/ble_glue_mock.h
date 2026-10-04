@@ -13,6 +13,7 @@ inline std::vector<std::array<uint8_t, 6>> g_ble_kicked;
 inline bool g_ble_started = false;
 
 inline void bleGlueBegin(const char*) { g_ble_started = true; }
+inline void bleGlueTick(uint32_t) {}
 
 inline bool bleGluePop(BleRx* out) {
   if (g_ble_rx.empty()) return false;
