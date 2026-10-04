@@ -247,24 +247,43 @@ class Dashboard:
 
     # -- explain (optional local open model)
 
+    def _ollama(self, payload, timeout):
+        ex = self.cfg.get("explain", {})
+        url = ex.get("url", "http://127.0.0.1:11434") + "/api/generate"
+        body = json.dumps({"model": ex.get("model", "gemma4:e2b-it-qat"), "stream": False,
+                           "keep_alive": -1, **payload}).encode()  # -1: stay loaded for the whole demo
+        req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+
+    def warm_model(self):
+        """Load the model once at start-up, so a judge's first click doesn't wait for it."""
+        try:
+            self._ollama({}, timeout=300)
+            print("explain: local model loaded", flush=True)
+        except Exception:
+            print("explain: no local model reachable; Explain incident will use the template", flush=True)
+
     def explain(self):
         with self.lock:
             recent = list(self.events)[-40:]
             states = {n: (self.nodes[n]["status"] or {}).get("state", "offline") for n in self.order}
-        incident = {"nodes": states, "events": [{k: e[k] for k in ("node", "kind", "detail")} for e in recent]}
+        log = "\n".join(f"- {e['node']}: {e['kind'].replace('_', ' ')}: {e['detail']}" for e in recent)
+        prompt = (
+            "You narrate a live security demo for judges who are not security experts. The system: small "
+            "devices each learn their normal network traffic, quarantine themselves when attacked, and send "
+            "each other signed 'vaccines' that say 'block this sender', so the others become immune before the "
+            "attacker reaches them. A router guards Wi-Fi devices that cannot run the software, and the ESP32 "
+            "also acts as a Bluetooth hub that cuts off misbehaving Bluetooth devices. Fake vaccines are "
+            "rejected.\n\nFrom the event log below, explain in at most 4 short, plain sentences what happened: "
+            "what attacked, which devices detected it, how the others became immune, and anything rejected or "
+            "cut off. No lists, no markdown.\n\nEvent log (oldest first):\n" + (log or "- nothing yet"))
         ex = self.cfg.get("explain", {})
-        url = ex.get("url", "http://127.0.0.1:11434") + "/api/generate"
-        prompt = ("You are explaining a security incident to non-experts watching a live demo of a "
-                  "peer-to-peer immune system for IoT devices. In 4 short sentences, say what attacked, "
-                  "which devices detected it, how the others became immune via signed vaccines, and "
-                  "whether any poisoned vaccines were rejected. Incident JSON:\n" + json.dumps(incident))
-        body = json.dumps({"model": ex.get("model", "gemma4:e2b-it-qat"), "prompt": prompt, "stream": False}).encode()
         try:
-            req = urllib.request.Request(url, body, {"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=ex.get("timeout_s", 25)) as r:
-                text = json.loads(r.read()).get("response", "").strip()
+            text = self._ollama({"prompt": prompt, "options": {"num_predict": 220, "temperature": 0.3}},
+                                timeout=ex.get("timeout_s", 90)).get("response", "").strip()
             if text:
-                return {"source": f"{ex.get('model', 'gemma4:e2b-it-qat')} (local)", "text": text}
+                return {"source": f"{ex.get('model', 'gemma4:e2b-it-qat')} (local, offline)", "text": text}
         except Exception:
             pass
         return {"source": "template (no local model reachable)", "text": self._template(recent, states)}
@@ -427,6 +446,7 @@ def main():
     threading.Thread(target=dash.listen, name="udp", daemon=True).start()
     if dash.hub:
         dash.hub.start()
+    threading.Thread(target=dash.warm_model, name="warm-model", daemon=True).start()
     port = args.port or cfg["network"]["http_port"]
     server = ThreadingHTTPServer((args.http, port), make_handler(dash))
     server.daemon_threads = True
