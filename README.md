@@ -378,8 +378,10 @@ on a phone hotspot.
 
 - [x] Python nodes run and turn healthy after learning
 - [x] The ESP32 boots, joins the hotspot, appears on the dashboard, learns, turns healthy; its LED shows its state
-- [x] Attacking the ESP32 → quarantine and a vaccine within about 2 s (measured about 1.5 s)
-- [x] Attacking Laptop B → quorum → Laptop A adopts; time to immunity shown (about 6 s)
+- [x] Attacking the ESP32 → quarantine and a vaccine within about 2 s (measured 1.4–2.0 s over 13 runs,
+  median 1.6 s: it needs two abnormal one-second windows in a row)
+- [x] Attacking Laptop B → quorum → Laptop A adopts about 0.2 s after Laptop B's report; time to immunity
+  shown (3.5–3.8 s with the two attacks pressed back to back; longer pauses between presses add to it)
 - [x] Attacking Laptop A → first packet blocked, no quarantine
 - [x] Forged, oversized, flood and single-report vaccines rejected with visible reasons
 - [x] Dumb bulb infection → gateway quarantine (app-level and an nftables set on the Pi)
