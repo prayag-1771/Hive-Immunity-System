@@ -53,7 +53,9 @@ def main():
             now = time.monotonic()
             if now >= next_hello:
                 next_hello = now + 2.0
-                for ip in ([dash] if dash else gateways):
+                # The dashboard needs our address for its "infect" button; the gateway may be a
+                # different machine (e.g. the Pi), so say hello by broadcast until we know it.
+                for ip in ([dash] if dash else net.broadcast_targets(cfg, my_ip)[:1]):
                     net.send(sock, {"v": 1, "t": "hello", "role": "dumb", "ip": my_ip, "busy": infected},
                              (ip, status_port))
             if now >= next_tele:
