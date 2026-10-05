@@ -248,20 +248,32 @@ This is the configuration verified end to end on real hardware, on a phone hotsp
 
 | Device | Roles | How it starts |
 |---|---|---|
-| Laptop (Windows) | dashboard + hub, Laptop A node | double-click [deploy/windows/start-laptop-A.cmd](deploy/windows/start-laptop-A.cmd) |
+| Laptop (Windows) | dashboard + hub, Laptop A node, Ollama | double-click [deploy/windows/start-laptop-A.cmd](deploy/windows/start-laptop-A.cmd) |
 | Raspberry Pi 5 | Laptop B node, gateway (nftables), attacker, Wi-Fi bulb, Bluetooth bulb | automatically at boot (hive-pi service) |
 | ESP32 DevKit (CP2102) | on-chip node + Bluetooth hub | flashed once, joins the hotspot by itself |
 
-All 8 demo steps pass on this setup: the ESP32 quarantines itself in about 2 s, every
-device is immune in about 5 s, Laptop A blocks the attacker's first packet, the Pi's
-nftables set isolates the Wi-Fi bulb, the ESP32's Bluetooth hub cuts off the flooding
-Bluetooth bulb in about 2 s, every poisoned vaccine is rejected, and Reset heals
-everything. Gemma 4 explains the run offline in about 10 s.
+All 8 demo steps pass on this setup:
+- the ESP32 quarantines itself within about 2 s;
+- the rest of the hive is immune about 0.2 s after a second device reports the attacker;
+- Laptop A blocks the attacker's first packet;
+- the Pi's nftables set isolates the Wi-Fi bulb;
+- the ESP32's Bluetooth hub cuts off the flooding Bluetooth bulb in about 2 s;
+- every poisoned vaccine is rejected;
+- Reset heals everything.
+
+Gemma 4 explains the run offline in about 10 s.
+
+**Keep the laptop on the hotspot.** If the hotspot has no internet, Windows may switch to
+another saved Wi-Fi network that has it. Before the demo, run `python tools/demo_wifi.py
+lock`: every other saved network then joins only when you choose it. Run
+`python tools/demo_wifi.py unlock` afterwards to undo that. If the laptop does leave the
+hotspot, the dashboard shows a red banner and Hive goes quiet until it is back.
 
 The attacker and the bulb must not share an address with a node, so the Pi gives itself
 two extra temporary addresses. At every boot, [deploy/pi/hive-pi.sh](deploy/pi/hive-pi.sh)
 does the following:
-1. waits for the hotspot;
+1. waits for the demo hotspot (the network the ESP32 is flashed for), so it never claims
+   addresses on another network;
 2. picks two free addresses in its subnet (checked with `arping`) and adds them;
 3. loads the nftables rules and starts all the Pi's roles;
 4. starts over if the hotspot later hands out a different subnet.
@@ -339,6 +351,9 @@ ollama pull gemma4:e2b-it-qat     # smallest Gemma 4 build (4.3 GB); runs on a l
 ollama serve                      # the dashboard calls http://127.0.0.1:11434
 ```
 
+The Windows starter starts Ollama by itself, from `OLLAMA_DIR` (its portable folder, with
+the models in `OLLAMA_DIR\models`) or from `PATH`.
+
 ## Honest limits
 
 - Hive **contains** infected dumb devices; it doesn't clean them.
@@ -408,7 +423,7 @@ firmware/     hive_node/ (ESP32 sketch, ble_hub.h, hive_sign.h, model.h), test/ 
 dashboard/    server.py (stdlib HTTP + SSE), index.html (offline, no CDN)
 gateway/      guardian.py, setup_hotspot.sh, nft_rules.nft
 tools/        hive_up.py, run_local.py, provision_keys.py, scenarios.py, dumb_device.py,
-              ble_bulb.py, train_autoencoder.py
+              ble_bulb.py, train_autoencoder.py, record_dashboard.py, demo_wifi.py
 deploy/       pi/ (hive-pi service + installer), windows/ (Laptop A starter)
 tests/        pytest: signing vectors, vaccine pipeline, detection, dashboard, network guard
 ```

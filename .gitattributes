@@ -4,3 +4,4 @@
 *.h text eol=lf
 deploy/pi/*.sh text eol=lf
 deploy/pi/*.service text eol=lf
+*.cmd text eol=crlf
