@@ -5,6 +5,7 @@ import random
 import re
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 import ble_bulb  # noqa: E402  (bleak is only imported when the bulb actually runs)
@@ -33,6 +34,19 @@ class BleBulbFormat(unittest.TestCase):
                                    "firmware", "hive_node", "ble_hub.h"), encoding="utf-8").read()
         self.assertIn(f'#define BLE_SERVICE_UUID "{ble_bulb.SERVICE}"', header)
         self.assertIn(f'#define BLE_REPORT_UUID "{ble_bulb.REPORT}"', header)
+
+
+class BleBulbRecovery(unittest.TestCase):
+    def test_failed_connect_makes_bluez_let_go(self):
+        bulb = ble_bulb.Bulb.__new__(ble_bulb.Bulb)   # no __init__: it opens a UDP socket
+        calls = []
+        with mock.patch.object(ble_bulb.subprocess, "run", side_effect=lambda cmd, **kw: calls.append(cmd)), \
+                mock.patch.object(bulb, "log", create=True):
+            bulb.release("68:FE:71:80:0A:E2")
+            bulb.release("68:FE:71:80:0A:E2", forget=True)
+        self.assertEqual(calls, [["bluetoothctl", "disconnect", "68:FE:71:80:0A:E2"],
+                                 ["bluetoothctl", "disconnect", "68:FE:71:80:0A:E2"],
+                                 ["bluetoothctl", "remove", "68:FE:71:80:0A:E2"]])
 
 
 if __name__ == "__main__":

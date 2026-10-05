@@ -106,6 +106,19 @@ class DashboardState(unittest.TestCase):
         self.assertIsNone(snap["immunity"]["t0"])
         self.assertEqual(snap["defenses"], {})
 
+    def test_reset_is_sent_again_to_a_node_that_did_not_heal(self):
+        sent = []
+        self.d._ctrl = lambda cmd, only=None: sent.append((cmd, only)) or 0
+        self.event("lapA", "heal", "reset by operator", ts=200.0)
+        self.event("lapB", "heal", "reset by operator", ts=200.5)
+        self.event("esp32", "heal", "reset by operator", ts=150.0)   # an earlier reset doesn't count
+        self.d._confirm_reset(199.0, tries=1, wait=0)
+        self.assertEqual(sent, [("reset", ["esp32"])])
+        sent.clear()
+        self.event("esp32", "heal", "reset by operator", ts=201.0)
+        self.d._confirm_reset(199.0, tries=1, wait=0)
+        self.assertEqual(sent, [])
+
     def test_page_is_told_when_the_laptop_leaves_the_hotspot(self):
         self.assertIsNone(self.d.snapshot()["network"])
         self.d.network = "this machine is on Wi-Fi 'Campus' (172.16.45.60), not the demo hotspot 'HiveNet'"

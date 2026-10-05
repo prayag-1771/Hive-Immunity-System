@@ -179,19 +179,38 @@ class Dashboard:
         self.trigger_seq = max(self.trigger_seq + 1, int(time.time() * 1000))
         m = {"v": 1, "t": "trigger", "name": name, "seq": self.trigger_seq, "args": args}
         m["sig"] = hc.sign(self.cfg["admin_key"], m)
-        net.send(self.sock, m, (peer["ip"], port))
+        addr = (peer["ip"], port)
+        net.send(self.sock, m, addr)
+        # A second copy a moment later in case Wi-Fi drops the first: receivers silently
+        # ignore a sequence number they have already acted on.
+        threading.Timer(0.15, net.send, args=(self.sock, m, addr)).start()
         return True, f"{name} sent to {role}"
 
-    def _ctrl(self, cmd):
+    def _ctrl(self, cmd, only=None):
+        """Send a signed control command to every node (or the node ids in `only`) and the gateway."""
         self.trigger_seq = max(self.trigger_seq + 1, int(time.time() * 1000))
         raw = hc.encode(hc.make_ctrl(self.cfg["admin_key"], cmd, self.trigger_seq))
         port = self.cfg["network"]
-        ips = {rec["ip"] for rec in self.nodes.values() if rec["ip"]}
+        ips = {rec["ip"] for nid, rec in self.nodes.items() if rec["ip"] and (only is None or nid in only)}
         for ip in ips:
             net.send(self.sock, raw, (ip, port["data_port"]))
-        if self.gateway_ip:
+        if self.gateway_ip and only is None:
             net.send(self.sock, raw, (self.gateway_ip, port["sink_port"]))
         return len(ips)
+
+    def _confirm_reset(self, since, tries=2, wait=1.5):
+        """Every node reports "heal" when it resets. UDP can drop the one reset packet (most
+        likely for the ESP32, whose radio is busy with Bluetooth), which would leave a
+        Bluetooth device blocked: send a fresh reset to online nodes that stay silent."""
+        for _ in range(tries):
+            time.sleep(wait)
+            now = time.monotonic()
+            with self.lock:
+                healed = {e["node"] for e in self.events if e["kind"] == "heal" and e["ts"] >= since}
+                silent = [n for n in self.order if self.nodes[n]["ip"] and self._online(n, now) and n not in healed]
+            if not silent:
+                return
+            self._ctrl("reset", only=silent)
 
     def node_ips(self):
         return [self.nodes[n]["ip"] for n in self.order if self.nodes[n]["ip"]]
@@ -228,7 +247,9 @@ class Dashboard:
         return False, f"unknown scenario {'/'.join(parts)}"
 
     def reset(self):
+        since = self.clock()
         n = self._ctrl("reset")
+        threading.Thread(target=self._confirm_reset, args=(since,), name="confirm-reset", daemon=True).start()
         if self.peers["attacker"]["ip"]:
             self._trigger("attacker", "stop")
         if self.peers["dumb"]["ip"]:

@@ -121,12 +121,29 @@ class Bulb:
         except (OSError, subprocess.SubprocessError):
             pass
 
+    def release(self, address, forget=False):
+        """Make BlueZ let go of the hub after a failed connect.
+
+        A connect that times out on our side can stay pending inside BlueZ (bleak's
+        disconnect does nothing for a client that never connected), and every later attempt
+        then times out too. Disconnect cancels a pending or half-open link; remove also
+        forgets the hub, so the next scan starts clean.
+        """
+        try:
+            subprocess.run(["bluetoothctl", "disconnect", address], capture_output=True, timeout=15)
+            if forget:
+                subprocess.run(["bluetoothctl", "remove", address], capture_output=True, timeout=10)
+                self.log(f"forgot the hub {address} after repeated failed connects; rescanning")
+        except (OSError, subprocess.SubprocessError):
+            pass
+
     async def run(self):
         from bleak import BleakClient, BleakScanner
         from bleak.exc import BleakError
 
         self.drop_stale_links()
         unseen_since = time.monotonic()
+        fails = 0   # failed connects in a row
         while True:
             self.state = "scanning" if self.state not in ("cut off", "refused") else self.state
             # LE-only discovery, so BlueZ never mistakes the hub for a classic Bluetooth device.
@@ -147,6 +164,7 @@ class Bulb:
             started = time.monotonic()
             try:
                 await client.connect()
+                fails = 0
                 # BlueZ retries a failing link internally and bleak reports each retry as a
                 # disconnect on this same client: only what happens from now on counts.
                 gone.clear()
@@ -160,7 +178,10 @@ class Bulb:
                     subprocess.run(["bluetoothctl", "remove", device.address], capture_output=True, timeout=10)
                     self.log(f"cleared a stale classic-Bluetooth entry for {device.address}")
                 elif self.state != "connected":
+                    # A hub that refuses a cut-off bulb also shows up here, as a timeout.
+                    fails += 1
                     self.log_every("connect", 10, f"could not connect to the hub: {type(e).__name__} {e}")
+                    self.release(device.address, forget=fails % 4 == 0)
                 elif not gone.is_set():
                     self.log(f"link error: {e}")
             finally:
