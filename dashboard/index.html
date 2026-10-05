@@ -116,6 +116,20 @@
   .netwarn { background: #3b1218; border: 2px solid var(--red); border-radius: 12px; padding: 10px 16px;
     margin: 0 0 14px; font-size: 17px; font-weight: 600; }
   .netwarn[hidden] { display: none; }
+
+  .epi { margin-top: 16px; }
+  .epi[hidden] { display: none; }
+  .epi-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .epi-head h2 { margin: 0; }
+  .epi-body { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .epi-stats { display: flex; gap: 22px; }
+  .epi-stats > div { text-align: center; }
+  .epi-stats b { display: block; font-size: 34px; font-weight: 800; color: var(--amber); font-variant-numeric: tabular-nums; }
+  .epi-stats span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  #epiChart { flex: 1; min-width: 300px; max-width: 100%; height: auto; background: #0d1426; border-radius: 10px; }
+  .epi-legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .epi-legend i { display: inline-block; width: 22px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  .epi-cap { margin-top: 8px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -151,6 +165,26 @@
     </div>
   </aside>
 </main>
+
+<section class="panel epi" id="epiPanel" hidden>
+  <div class="epi-head">
+    <h2>City of 10,000 devices &mdash; what this speed means at scale</h2>
+    <button class="small" onclick="projectCity()">Re-project from latest run <kbd>p</kbd></button>
+  </div>
+  <div class="epi-body">
+    <div class="epi-stats">
+      <div><b id="epiR0">&mdash;</b><span>R0 with Hive</span></div>
+      <div><b id="epiSaved">&mdash;</b><span>devices saved</span></div>
+      <div><b id="epiPeak">&mdash;</b><span>infected without Hive</span></div>
+    </div>
+    <canvas id="epiChart" width="920" height="300"></canvas>
+  </div>
+  <div class="epi-legend">
+    <span><i style="background:var(--red)"></i>Without Hive</span>
+    <span><i style="background:var(--green)"></i>With Hive</span>
+  </div>
+  <div class="epi-cap" id="epiCap"></div>
+</section>
 
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal" hidden>
@@ -420,6 +454,7 @@ function buildControls() {
   btns.push({cls: "bulbbtn", text: "Infect dumb bulb", key: "b", path: "scenario/infect_bulb"});
   if (bleAvailable()) btns.push({cls: "bulbbtn", text: "Infect BLE bulb", key: "t", path: "scenario/infect_ble"});
   btns.push({cls: "cure", text: "Attack the cure", key: "c", path: "scenario/cure"});
+  btns.push({cls: "small", text: "Project to 10,000 devices", key: "p", path: "epidemic"});
   btns.push({cls: "reset", text: "Reset", key: "r", path: "reset"});
   btns.push({cls: "small", text: "Explain incident", key: "e", path: "explain"});
   btns.push({cls: "small", text: "Relearn", key: "", path: "relearn"});
@@ -441,6 +476,7 @@ document.addEventListener("keydown", (e) => {
 
 async function act(path) {
   if (path === "explain") return explain();
+  if (path === "epidemic") return projectCity();
   try {
     const r = await fetch("/api/" + path, {method: "POST"});
     const j = await r.json();
@@ -458,6 +494,57 @@ async function explain() {
   } catch (err) { $("explainText").textContent = "dashboard not reachable"; }
 }
 function closeModal() { $("modal").hidden = true; }
+
+// ---------------------------------------------------------------- epidemic meter
+// Project the measured detect/spread speed onto a city of 10,000 with a standard SIR model.
+// The chart is drawn by hand on a <canvas> so it needs no library and works fully offline.
+async function projectCity() {
+  let d;
+  try { d = await (await fetch("/api/epidemic")).json(); }
+  catch (err) { return toast("could not project", true); }
+  $("epiPanel").hidden = false;
+  const r0 = d.with_hive.R0;
+  $("epiR0").textContent = r0 === null || r0 > 50 ? "∞" : (r0 < 10 ? r0.toFixed(2) : r0.toFixed(1));
+  $("epiR0").style.color = d.contained ? "var(--green)" : "var(--red)";
+  $("epiSaved").textContent = d.saved.toLocaleString() + " · " + d.saved_pct + "%";
+  $("epiPeak").textContent = d.without_hive.peak_infected.toLocaleString();
+  const verdict = d.contained ? "the outbreak dies out — R0 is below 1"
+                              : "the outbreak is NOT contained — the response is too slow";
+  $("epiCap").innerHTML = `Simulation (standard SIR epidemic model) of ${d.city_size.toLocaleString()} devices, ` +
+    `driven by the detection time <b>${d.timing.t_detect}s</b> and spread time <b>${d.timing.t_spread}s</b> ` +
+    `(${esc(d.timing_source)}). With Hive, ${verdict}.`;
+  drawEpi(d);
+  $("epiPanel").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+
+function drawEpi(d) {
+  const c = $("epiChart"), ctx = c.getContext("2d");
+  const W = c.width, H = c.height, L = 12, R = 12, T = 16, B = 26;
+  ctx.clearRect(0, 0, W, H);
+  const n = d.city_size;
+  const a = d.without_hive.I, b = d.with_hive.I, len = Math.max(a.length, b.length);
+  const X = (i) => L + (W - L - R) * (len < 2 ? 0 : i / (len - 1));
+  const Y = (v) => H - B - (H - T - B) * Math.min(1, Math.max(0, v / n));
+  // baseline = whole city
+  ctx.strokeStyle = "#26324f"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(L, Y(n)); ctx.lineTo(W - R, Y(n)); ctx.stroke();
+  ctx.fillStyle = "#64748b"; ctx.font = "12px Consolas, monospace";
+  ctx.fillText(n.toLocaleString() + " devices", L + 4, Y(n) + 14);
+  ctx.fillText("0", L + 4, H - B - 4);
+  ctx.textAlign = "right"; ctx.fillText("time →", W - R - 2, H - 8); ctx.textAlign = "left";
+  const curve = (arr, stroke, fill) => {
+    if (!arr || !arr.length) return;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(arr[0]));
+    for (let i = 1; i < arr.length; i++) ctx.lineTo(X(i), Y(arr[i]));
+    ctx.lineTo(X(arr.length - 1), H - B); ctx.lineTo(X(0), H - B); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(X(0), Y(arr[0]));
+    for (let i = 1; i < arr.length; i++) ctx.lineTo(X(i), Y(arr[i]));
+    ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.stroke();
+  };
+  curve(a, "#ef4444", "rgba(239,68,68,.20)");   // without Hive
+  curve(b, "#22c55e", "rgba(34,197,94,.30)");    // with Hive
+}
 let toastTimer = null;
 function toast(msg, bad) {
   const t = $("toast");
@@ -491,7 +578,9 @@ async function poll() {
   } catch (err) { $("conn").className = "dot warn"; $("connText").textContent = "reconnecting"; }
 }
 setInterval(() => { if (state) renderSide(); }, 100);
-if (new URLSearchParams(location.search).has("poll")) { poll(); setInterval(poll, 700); } else { connect(); }
+const params = new URLSearchParams(location.search);
+if (params.has("poll")) { poll(); setInterval(poll, 700); } else { connect(); }
+if (params.has("project")) setTimeout(projectCity, 1500);   // auto-open the city projection (demo/recorder)
 </script>
 </body>
 </html>

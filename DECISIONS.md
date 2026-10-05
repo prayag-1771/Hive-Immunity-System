@@ -118,3 +118,15 @@ Choices made while building, where the brief left room. Newest at the bottom.
 
     When a machine can't tell (no Wi-Fi tools), the old behaviour stands, so the demo never
     stops on a false alarm.
+31. **Epidemic Meter (Upgrade A): a standard SIR model driven by the live demo speed.**
+    `gamma = 1/(t_detect + t_spread)` comes from the measured run; `beta` is a fixed
+    "attacker aggressiveness" constant (`fanout * contact_factor`, about 0.3 new
+    infections/s per infected device). `R0 = beta/gamma`. The constant is calibrated so the
+    measured demo speed gives R0 < 1 (contained) while a clearly slower response would not
+    -- plausible and monotonic, not academically exact (the brief's own suggested constants
+    gave R0 > 1 even at demo speed, contradicting its narrative). **t_spread is measured from
+    the second report (quorum), not the first detection**, so the operator's pause between
+    the two attack presses is not counted as system speed -- the same reason the
+    time-to-immunity figure overcounts. R0 is `null` (not `Infinity`) with no immunity, so
+    the JSON stays valid. The chart is drawn by hand on a `<canvas>` (no library, offline).
+    Always labelled a simulation.

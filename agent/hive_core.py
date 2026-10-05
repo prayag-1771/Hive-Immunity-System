@@ -48,8 +48,33 @@ NETWORK_DEFAULTS = {
     "attacker_port": 47004,
     "dumb_port": 47005,
     "ble_port": 47006,
+    "decoy_port": 48080,   # the honeypot/tarpit: flagged attackers are routed here
     "http_port": 8080,
     "broadcast": "auto",   # this /24's directed broadcast + 255.255.255.255
+}
+
+# Epidemic Meter (dashboard/epidemic.py). beta is a fixed "attacker aggressiveness": an
+# infected device left alone would cause about beta = fanout * contact_factor new infections
+# per second (~0.3/s here). gamma = 1/(t_detect + t_spread) comes from the live demo. The
+# constant is chosen so the measured demo speed gives R0 = beta/gamma below 1 (outbreak
+# contained) while a clearly slower response would not -- plausible and monotonic, not exact.
+EPIDEMIC_DEFAULTS = {
+    "city_size": 10000,
+    "attacker_fanout_per_s": 2,
+    "contact_factor": 0.15,
+    "sim_steps": 400,
+    "dt": 0.25,
+}
+
+# Decoy / incident report (gateway/decoy.py, gateway/profiler.py).
+DECOY_DEFAULTS = {
+    "enabled": True,
+    "reply_delay_s": 1.5,     # answer slowly, to hold a flagged attacker in the tarpit
+    "max_log_lines": 2000,
+}
+REPORT_DEFAULTS = {
+    "org_name": "Hive Demo Net",
+    "cert_contact": "cert@example.org",
 }
 
 
@@ -60,6 +85,9 @@ def load_config(path):
         cfg = json.load(f)
     cfg["network"] = {**NETWORK_DEFAULTS, **cfg.get("network", {})}
     cfg["demo"] = {**DEMO_DEFAULTS, **cfg.get("demo", {})}
+    cfg["epidemic"] = {**EPIDEMIC_DEFAULTS, **cfg.get("epidemic", {})}
+    cfg["decoy"] = {**DECOY_DEFAULTS, **cfg.get("decoy", {})}
+    cfg["report"] = {**REPORT_DEFAULTS, **cfg.get("report", {})}
     cfg.setdefault("quorum", 2)
     cfg.setdefault("hub", {"node_id": "hub", "ip": "auto"})
     cfg.setdefault("dashboard", {"ip": "auto"})

@@ -23,6 +23,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "agent"))
 import hive_core as hc  # noqa: E402
 import hive_net as net  # noqa: E402
+import epidemic  # noqa: E402  (same directory as this file)
 from hub import Hub  # noqa: E402
 
 INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
@@ -70,6 +71,9 @@ class Dashboard:
         self.clock = time.time
         self.last_event_key, self.last_event_at = None, 0.0
         self.network = None   # why this machine is not on the demo network, None while it is
+        # Latest detect/spread times for the Epidemic Meter. Before any live run, the figures
+        # measured on our real hardware, so the "Project to 10,000" button always has numbers.
+        self.last_timing = {"t_detect": 1.6, "t_spread": 0.2, "live": False}
         self._reset_immunity()
 
     # -- immunity timer
@@ -88,6 +92,23 @@ class Dashboard:
         online = [n for n in self.order if self._online(n, now)]
         if online and all(n in im["nodes"] for n in online):
             im["t1"] = max(ts for ts, _ in im["nodes"].values())
+            self._record_timing(im)
+
+    def _record_timing(self, im):
+        """Keep the latest live detect/spread times for the Epidemic Meter (both on the
+        dashboard clock).
+
+        t_detect = first attack packet -> the first device quarantining itself.
+        t_spread = the second device's report (quorum reached) -> the last device immune.
+
+        Spread is measured from the *second* report on purpose: the gap before it is the
+        operator pressing the next attack button, not the system's speed (the same reason
+        the time-to-immunity figure overcounts). From quorum onward, it is all Hive.
+        """
+        tss = sorted(ts for ts, _ in im["nodes"].values())
+        quorum_ts = tss[1] if len(tss) > 1 else tss[0]
+        self.last_timing = {"t_detect": round(max(0.0, tss[0] - im["t0"]), 2),
+                            "t_spread": round(max(0.0, im["t1"] - quorum_ts), 2), "live": True}
 
     def _track(self, node, msg):
         im, kind, target = self.immunity, msg["kind"], msg.get("target")
@@ -400,9 +421,20 @@ class Dashboard:
                             "busy": self.peers["blebulb"]["busy"], "ble": self.peers["blebulb"]["ble"]},
                 "immunity": {"target": im["target"], "t0": im["t0"], "t1": im["t1"],
                              "nodes": {n: v[1] for n, v in im["nodes"].items()},
+                             "times": {n: round(v[0] - im["t0"], 2) for n, v in im["nodes"].items()} if im["t0"] else {},
                              "instant": im["instant"]},
                 "defenses": self.defenses, "hub_ip": self.hub_ip, "network": self.network,
             }
+
+    def epidemic_projection(self):
+        """Project the latest measured detect/spread speed onto a city of 10,000 devices."""
+        with self.lock:
+            timing = dict(self.last_timing)
+        proj = epidemic.project(timing, self.cfg.get("epidemic", hc.EPIDEMIC_DEFAULTS))
+        proj["timing"] = timing
+        proj["timing_source"] = "measured live this run" if timing.get("live") else \
+            "measured on our real hardware (no live run yet this session)"
+        return proj
 
     def watch_network(self):
         """Keep `network` current, so the page says so when this laptop leaves the hotspot
@@ -441,6 +473,8 @@ def make_handler(dash):
                 return self._send(200, snap)
             if path == "/events":
                 return self._sse()
+            if path == "/api/epidemic":
+                return self._send(200, dash.epidemic_projection())
             self._send(404, {"error": "not found"})
 
         def do_POST(self):

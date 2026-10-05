@@ -119,6 +119,22 @@ class DashboardState(unittest.TestCase):
         self.d._confirm_reset(199.0, tries=1, wait=0)
         self.assertEqual(sent, [])
 
+    def test_epidemic_uses_the_latest_measured_speed(self):
+        # before any live run it falls back to the hardware figures, still projecting a city
+        proj = self.d.epidemic_projection()
+        self.assertFalse(proj["timing"]["live"])
+        self.assertEqual(proj["city_size"], 10000)
+        self.assertTrue(proj["contained"])
+        # a full immunity run records t_detect/t_spread, which the projection then uses
+        self.event("attacker", "attack_started", "flooding", ATT, ts=100.0)
+        self.event("esp32", "vax_issued", "block", ATT, ts=102.0)     # first detection at +2.0 s
+        # the operator's pause before the second attack must NOT count as spread:
+        self.event("lapB", "vax_issued", "block", ATT, ts=108.5)      # second report (quorum) at +8.5 s
+        self.event("lapA", "vax_adopted", "immune", ATT, ts=108.7)    # last node immune 0.2 s later
+        self.assertIsNotNone(self.d.immunity["t1"])
+        self.assertEqual(self.d.last_timing, {"t_detect": 2.0, "t_spread": 0.2, "live": True})
+        self.assertTrue(self.d.epidemic_projection()["contained"])
+
     def test_page_is_told_when_the_laptop_leaves_the_hotspot(self):
         self.assertIsNone(self.d.snapshot()["network"])
         self.d.network = "this machine is on Wi-Fi 'Campus' (172.16.45.60), not the demo hotspot 'HiveNet'"
