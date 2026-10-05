@@ -78,6 +78,7 @@ def main():
     ap.add_argument("--rate", type=float, default=3.0, help="commands per second per node")
     args = ap.parse_args()
     cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
     hub = Hub(cfg, args.rate)
     for t in args.target:
         node_id, ip = t.split("=", 1)

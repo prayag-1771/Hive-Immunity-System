@@ -106,6 +106,11 @@ class DashboardState(unittest.TestCase):
         self.assertIsNone(snap["immunity"]["t0"])
         self.assertEqual(snap["defenses"], {})
 
+    def test_page_is_told_when_the_laptop_leaves_the_hotspot(self):
+        self.assertIsNone(self.d.snapshot()["network"])
+        self.d.network = "this machine is on Wi-Fi 'Campus' (172.16.45.60), not the demo hotspot 'HiveNet'"
+        self.assertIn("Campus", self.d.snapshot()["network"])
+
     def test_wifi_and_bluetooth_devices_get_tiles(self):
         self.d._on_msg({"v": 1, "t": "status", "node": "ble-a3bc", "kind": "ble", "state": "healthy",
                         "label": "blebulb", "addr": "88:A2:9E:40:A3:BC"}, "127.0.9.2")

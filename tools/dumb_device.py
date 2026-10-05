@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--name", help="device name shown on the dashboard")
     args = ap.parse_args()
     cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
     name = args.name or cfg["dumb"].get("name", "bulb")
     bind = args.bind or hc.static_ip(cfg["dumb"].get("ip")) or "0.0.0.0"
     sock = net.udp_socket(bind, cfg["network"]["dumb_port"], broadcast=True)

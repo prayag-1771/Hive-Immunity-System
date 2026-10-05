@@ -113,6 +113,9 @@
   .modal[hidden] { display: none; }
   .modal .panel { max-width: 720px; font-size: 19px; line-height: 1.5; }
   .modal small { color: var(--muted); display: block; margin-top: 10px; font-size: 13px; }
+  .netwarn { background: #3b1218; border: 2px solid var(--red); border-radius: 12px; padding: 10px 16px;
+    margin: 0 0 14px; font-size: 17px; font-weight: 600; }
+  .netwarn[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -125,6 +128,7 @@
   <span class="chip"><span class="dot" id="dumbDot"></span><span id="dumbText">bulb sim</span></span>
   <span class="chip" id="bleChip" hidden><span class="dot" id="bleDot"></span><span id="bleText">BLE bulb sim</span></span>
 </header>
+<div class="netwarn" id="netwarn" hidden></div>
 
 <main>
   <div>
@@ -312,6 +316,9 @@ function renderSide() {
   $("bleChip").hidden = !b.online;
   $("bleDot").className = "dot" + (b.online ? (b.busy ? " warn" : (b.ble === "connected" ? " on" : "")) : "");
   $("bleText").textContent = `BLE bulb sim: ${b.busy ? "infected, " : ""}${b.ble || "starting"}`;
+  $("netwarn").hidden = !state.network;
+  $("netwarn").textContent = state.network ? `⚠ Not on the demo network: ${state.network}. ` +
+    "Join the hotspot and the demo carries on by itself; until then nothing is sent." : "";
 }
 
 function render() {

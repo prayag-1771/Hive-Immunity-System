@@ -23,16 +23,33 @@ primary() {
 
 log() { echo "hive-pi: $*"; }
 
-# Wait for the hotspot.
+# Remove our extra /32 addresses outside the /24 given (all of them when none is given).
+drop_extra() {
+    for a in $(ip -4 -o addr show dev "$IFACE" | awk '$4 ~ /\/32$/ { print $4 }'); do
+        case "$a" in "${1:-none}".*) ;; *) ip addr del "$a" dev "$IFACE" && log "removed stale $a" ;; esac
+    done
+}
+
+# Wait for a network.
 while [ -z "$(primary)" ]; do sleep 2; done
+
+# Only on the demo hotspot (the one the ESP32 is flashed for): never claim addresses or
+# start the demo on someone else's network, such as a campus Wi-Fi the Pi also knows.
+LAST=""
+until MSG=$(cd "$REPO" && "$PY" tools/hive_up.py --check-network 2>&1); do
+    if [ "$MSG" != "$LAST" ]; then
+        log "$MSG; waiting for the demo hotspot"
+        drop_extra ""
+        LAST=$MSG
+    fi
+    sleep 10
+done
 ME=$(primary)
 NET=${ME%.*}
 log "on $IFACE as $ME"
 
 # Drop extra addresses left over from a different hotspot subnet.
-for a in $(ip -4 -o addr show dev "$IFACE" | awk '$4 ~ /\/32$/ { print $4 }'); do
-    case "$a" in "$NET".*) ;; *) ip addr del "$a" dev "$IFACE" && log "removed stale $a" ;; esac
-done
+drop_extra "$NET"
 
 pick() {
     for last in "$@"; do

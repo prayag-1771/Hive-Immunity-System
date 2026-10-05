@@ -163,7 +163,9 @@ def main():
     ap.add_argument("--fresh", action="store_true", help="ignore the saved baseline and relearn")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
-    agent = Agent(hc.load_config(args.config), args.node, args.bind, args.detector, args.fresh, args.quiet)
+    cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
+    agent = Agent(cfg, args.node, args.bind, args.detector, args.fresh, args.quiet)
     try:
         agent.run()
     except KeyboardInterrupt:

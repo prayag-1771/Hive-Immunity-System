@@ -220,6 +220,7 @@ def main():
     ap.add_argument("--rate", type=int, default=ATTACK_RATE)
     args = ap.parse_args()
     cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
     peers = [p for p in args.peers.split(",") if p]
     try:
         if args.command == "serve":

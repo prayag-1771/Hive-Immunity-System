@@ -223,7 +223,9 @@ def main():
     if args.nft and not sys.platform.startswith("linux"):
         raise SystemExit("--nft needs a Linux gateway")
     try:
-        Guardian(hc.load_config(args.config), args.bind, args.nft, args.dashboard).run()
+        cfg = hc.load_config(args.config)
+        net.set_demo_network(cfg)
+        Guardian(cfg, args.bind, args.nft, args.dashboard).run()
     except KeyboardInterrupt:
         pass
 

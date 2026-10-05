@@ -69,6 +69,7 @@ class Dashboard:
         # can disagree (an offline Pi has no battery-backed clock, the ESP32 has none).
         self.clock = time.time
         self.last_event_key, self.last_event_at = None, 0.0
+        self.network = None   # why this machine is not on the demo network, None while it is
         self._reset_immunity()
 
     # -- immunity timer
@@ -379,8 +380,15 @@ class Dashboard:
                 "immunity": {"target": im["target"], "t0": im["t0"], "t1": im["t1"],
                              "nodes": {n: v[1] for n, v in im["nodes"].items()},
                              "instant": im["instant"]},
-                "defenses": self.defenses, "hub_ip": self.hub_ip,
+                "defenses": self.defenses, "hub_ip": self.hub_ip, "network": self.network,
             }
+
+    def watch_network(self):
+        """Keep `network` current, so the page says so when this laptop leaves the hotspot
+        (Windows may hop to a known network with internet when the hotspot has none)."""
+        while True:
+            self.network = net.demo_network_problem(self.cfg)
+            time.sleep(5)
 
 
 def make_handler(dash):
@@ -468,6 +476,15 @@ def make_handler(dash):
     return Handler
 
 
+class QuietHTTPServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # A browser that drops its connection (page closed, network change) is routine:
+        # keep the console readable for the presenter instead of printing a traceback.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=net.DEFAULT_CONFIG)
@@ -476,13 +493,15 @@ def main():
     ap.add_argument("--no-hub", action="store_true", help="do not run the normal-traffic hub")
     args = ap.parse_args()
     cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
     dash = Dashboard(cfg, run_hub=not args.no_hub)
     threading.Thread(target=dash.listen, name="udp", daemon=True).start()
     if dash.hub:
         dash.hub.start()
     threading.Thread(target=dash.warm_model, name="warm-model", daemon=True).start()
+    threading.Thread(target=dash.watch_network, name="network", daemon=True).start()
     port = args.port or cfg["network"]["http_port"]
-    server = ThreadingHTTPServer((args.http, port), make_handler(dash))
+    server = QuietHTTPServer((args.http, port), make_handler(dash))
     server.daemon_threads = True
     print(f"dashboard on http://{'localhost' if args.http in ('127.0.0.1', '0.0.0.0') else args.http}:{port}"
           f"  (status UDP {cfg['network']['status_port']}, hub {'on' if dash.hub else 'off'}, hub ip {dash.hub_ip})",

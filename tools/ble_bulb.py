@@ -202,7 +202,9 @@ def main():
     ap.add_argument("--config", default=net.DEFAULT_CONFIG)
     ap.add_argument("--name", default="blebulb", help="device name in its reports ([a-z0-9], max 10)")
     args = ap.parse_args()
-    bulb = Bulb(hc.load_config(args.config), args.name)
+    cfg = hc.load_config(args.config)
+    net.set_demo_network(cfg)
+    bulb = Bulb(cfg, args.name)
     threading.Thread(target=bulb.control, name="control", daemon=True).start()
     bulb.log(f"Bluetooth bulb looking for the hub (service {SERVICE}); triggers on UDP {bulb.port}")
     try:

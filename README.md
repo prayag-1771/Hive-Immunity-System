@@ -169,9 +169,17 @@ using bleak).
 ### Safety built into the code
 
 Every program refuses to send anything outside the machine's own local network segment,
-using the operating system's routing table. If a laptop drops off the demo hotspot and
-rejoins a campus Wi-Fi, Hive goes quiet instead of leaking traffic, and the attacker tool
-can't be aimed at a real host.
+using the operating system's routing table, so the attacker tool can't be aimed at a real
+host. Hive also knows which network is its own: the hotspot the ESP32 is flashed for (or a
+fixed address in the config).
+
+- `hive_up.py` won't start anywhere else, and the Pi waits for the hotspot before it claims
+  any address. `--any-network` overrides this, for a private network you own.
+- While a machine is on another network, nothing leaves it at all, not even a broadcast.
+- If a laptop drops off the hotspot and joins a campus Wi-Fi mid-demo, Hive goes quiet and
+  the dashboard shows a red banner. It carries on by itself once the laptop is back.
+
+The one-laptop simulation stays on 127.0.0.x and runs on any network.
 
 ---
 

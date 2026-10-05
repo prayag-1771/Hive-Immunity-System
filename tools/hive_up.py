@@ -23,6 +23,9 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "agent"))
+import hive_core as hc  # noqa: E402
+import hive_net as net  # noqa: E402
 
 
 def command(role, args):
@@ -54,16 +57,30 @@ def pump(name, proc, width):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("roles", nargs="+")
+    ap.add_argument("roles", nargs="*")
     ap.add_argument("--config", default=os.path.join(ROOT, "config", "nodes.json"))
     ap.add_argument("--http", default="127.0.0.1", help="dashboard HTTP bind (0.0.0.0 to share on the LAN)")
     ap.add_argument("--detector", default="auto", choices=("auto", "zscore", "autoencoder"))
     ap.add_argument("--gateway", help="gateway IP for the bulb (default: from config, else broadcast)")
     ap.add_argument("--nft", action="store_true", help="gateway also enforces with nftables (Linux, root)")
+    ap.add_argument("--any-network", action="store_true",
+                    help="start even when not on the demo hotspot (only on a private network you own)")
+    ap.add_argument("--check-network", action="store_true",
+                    help="only check for the demo hotspot: exit 0 when on it, 3 when not")
     args = ap.parse_args()
     if not os.path.exists(args.config):
         raise SystemExit(f"{args.config} missing: copy config/nodes.json from the machine that ran "
                          "tools/provision_keys.py (same keys on every machine)")
+    # Safety rule: the demo only runs on its own private network, never on a campus or venue one.
+    problem = net.demo_network_problem(hc.load_config(args.config))
+    if args.check_network:
+        print(problem or "on the demo network", flush=True)
+        raise SystemExit(3 if problem else 0)
+    if not args.roles:
+        ap.error("name at least one role")
+    if problem and not args.any_network:
+        raise SystemExit(f"hive: not starting: {problem}.\nHive only runs on its own private network. "
+                         "Join the hotspot, or pass --any-network if this network is yours.")
 
     procs = [command(r, args) for r in args.roles]
     width = max(len(n) for n, _ in procs)

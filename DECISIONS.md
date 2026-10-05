@@ -106,3 +106,15 @@ Choices made while building, where the brief left room. Newest at the bottom.
     CUDA compiles its kernels, so the dashboard warms the model in the background, keeps it
     loaded, and answers from the template until it is ready. Ollama runs with a 4 GB CUDA
     kernel cache (`CUDA_CACHE_MAXSIZE`) so later starts are fast.
+30. **Hive only talks on its own network.** In the first no-internet test, Windows left the
+    hotspot for a campus Wi-Fi it knew (it prefers a network with internet), and a dashboard
+    restarted later came up on a campus network. Decision 23's route check still let traffic
+    through to that network's own addresses and broadcast. Now the config defines the
+    network (the ESP32's hotspot name, or a fixed address):
+    - `hive_up.py` refuses to start anywhere else, and `hive-pi.sh` waits for the hotspot
+      before claiming addresses;
+    - nothing leaves a machine known to be on another network;
+    - the dashboard shows a banner while that is the case.
+
+    When a machine can't tell (no Wi-Fi tools), the old behaviour stands, so the demo never
+    stops on a false alarm.
