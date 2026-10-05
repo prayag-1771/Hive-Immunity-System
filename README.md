@@ -340,7 +340,21 @@ learning, press **Relearn**.
 | 8 | **Reset** | Everything heals back to green without restarting. |
 
 Let a judge press the attack button. Keyboard: `1`–`3` attack, `b` dumb bulb, `t`
-Bluetooth bulb, `c` attack the cure, `r` reset, `e` explain.
+Bluetooth bulb, `c` attack the cure, `d` attacker explores the decoy, `p` project to
+10,000 devices, `r` reset, `e` explain.
+
+Two extra beats (optional, software-only):
+
+- **Project to 10,000 devices** (`p`) — after the vaccine spreads, project the live-measured
+  detection and spread speed onto a city of 10,000 with a standard SIR epidemic model: the
+  red curve (without Hive) takes the whole city, the green curve (with Hive) dies out, and
+  **R0 drops below 1**. Always labelled a simulation. See [dashboard/epidemic.py](dashboard/epidemic.py).
+- **Attacker explores decoy** (`d`) — the blocked attacker is sent into a fake, isolated
+  "smart camera" ([gateway/decoy.py](gateway/decoy.py)) that answers slowly and logs every
+  probe. An **Attacker Profile** fills live (source, commands, matched pattern, confidence,
+  a tarpit timer), and **Download incident report** produces a filable report
+  ([gateway/profiler.py](gateway/profiler.py)). Observe-only: nothing is ever sent toward the
+  attacker, and the report flags a source, not a person. See [docs/HIVE_UPGRADES.md](docs/HIVE_UPGRADES.md).
 
 **Explain incident** asks Gemma 4 running locally through Ollama to narrate what happened
 in plain language, with no cloud involved. If no model is reachable, it falls back to a

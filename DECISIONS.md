@@ -130,3 +130,14 @@ Choices made while building, where the brief left room. Newest at the bottom.
     time-to-immunity figure overcounts. R0 is `null` (not `Infinity`) with no immunity, so
     the JSON stays valid. The chart is drawn by hand on a `<canvas>` (no library, offline).
     Always labelled a simulation.
+32. **Decoy + attacker profile (Upgrade B): a honeypot/tarpit, observe-only.** A flagged
+    attacker is sent into a fake "smart camera" (`gateway/decoy.py`) that only ever replies
+    to connections it receives, slowly, and logs every probe -- it is a lookup table, never
+    a shell, and never initiates traffic toward the attacker. `gateway/profiler.py` (pure)
+    turns the log into a profile (pattern match, fingerprint, confidence) and a filable
+    incident report. Honeytoken principle: any contact with the decoy is hostile, so
+    confidence starts high. For the prototype the decoy runs inside the dashboard process
+    (so the one-laptop demo works); the brief's gateway placement is a later move. The
+    report flags a source, never a person, and notes the source may itself be a victim. The
+    "Attacker explores decoy" button makes the already-blocked attacker send a canned probe
+    sequence into the decoy; block and study happen together.

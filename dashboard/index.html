@@ -130,6 +130,20 @@
   .epi-legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 8px; }
   .epi-legend i { display: inline-block; width: 22px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
   .epi-cap { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+  #decoyPanel[hidden] { display: none; }
+  #decoyPanel { border-color: var(--amber); }
+  .decoy-src b { font-size: 22px; font-family: Consolas, monospace; color: var(--amber); }
+  .decoy-src span { display: block; font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+  .decoy-tarpit { font-size: 15px; color: var(--text); margin-bottom: 8px; }
+  .decoy-tarpit b { color: var(--red); font-variant-numeric: tabular-nums; }
+  .decoy-pat { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+  .conf { flex: 1; min-width: 80px; height: 10px; background: #0d1426; border-radius: 5px; overflow: hidden; }
+  .conf i { display: block; height: 100%; background: var(--amber); }
+  .decoy-cmds { font: 12px Consolas, monospace; background: #0d1426; border-radius: 8px; padding: 6px 8px;
+    max-height: 130px; overflow-y: auto; margin-bottom: 10px; }
+  .decoy-cmds div { padding: 2px 0; color: #cbd5e1; border-bottom: 1px solid #1a2138; }
+  #reportModal[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -158,6 +172,14 @@
     <div class="panel">
       <h2>Poison-proof vaccines</h2>
       <ul class="defs" id="defs"></ul>
+    </div>
+    <div class="panel" id="decoyPanel" hidden>
+      <h2>Attacker caught in a decoy</h2>
+      <div class="decoy-src"><b id="decoySrc">&mdash;</b><span id="decoyGeo"></span></div>
+      <div class="decoy-tarpit">wasted in the trap: <b id="decoyTime">0:00</b></div>
+      <div class="decoy-pat"><span id="decoyPattern"></span><span class="conf"><i id="decoyConf"></i></span><b id="decoyConfPct"></b></div>
+      <div class="decoy-cmds" id="decoyCmds"></div>
+      <button class="small" onclick="downloadReport()">Download incident report</button>
     </div>
     <div class="panel">
       <h2>What just happened</h2>
@@ -190,6 +212,12 @@
 <div class="modal" id="modal" hidden>
   <div class="panel"><h2>Incident explained</h2><div id="explainText"></div><small id="explainSrc"></small>
     <div style="margin-top:14px"><button class="small" onclick="closeModal()">Close</button></div></div>
+</div>
+<div class="modal" id="reportModal" hidden>
+  <div class="panel"><h2>Incident report</h2>
+    <pre id="reportText" style="white-space:pre-wrap;font:13px Consolas,monospace;max-height:58vh;overflow:auto;margin:0"></pre>
+    <div style="margin-top:12px"><button class="small" onclick="saveReport()">Download .txt</button>
+      <button class="small" onclick="$('reportModal').hidden=true">Close</button></div></div>
 </div>
 
 <script>
@@ -353,6 +381,20 @@ function renderSide() {
   $("netwarn").hidden = !state.network;
   $("netwarn").textContent = state.network ? `⚠ Not on the demo network: ${state.network}. ` +
     "Join the hotspot and the demo carries on by itself; until then nothing is sent." : "";
+  renderDecoy(state.decoy);
+}
+
+function renderDecoy(dc) {
+  $("decoyPanel").hidden = !dc;
+  if (!dc) return;
+  $("decoySrc").textContent = "Source " + dc.active;
+  $("decoyGeo").textContent = dc.geo_hint;
+  const secs = Math.max(0, Math.round((state.now || 0) - dc.first_seen));
+  $("decoyTime").textContent = Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0");
+  $("decoyPattern").textContent = dc.pattern;
+  $("decoyConf").style.width = dc.confidence + "%";
+  $("decoyConfPct").textContent = dc.confidence + "%";
+  $("decoyCmds").innerHTML = dc.commands.map((c) => `<div>${esc(c)}</div>`).join("");
 }
 
 function render() {
@@ -384,6 +426,9 @@ function sentence(kind, who, d) {
     case "ble_refused": return `<b>${who}</b> (Bluetooth hub) ${d}`;
     case "ble_connected": return `<b>${who}</b> (Bluetooth hub): ${d}`;
     case "ble_learned": return `<b>${who}</b> (Bluetooth hub) learned a Bluetooth device's normal behaviour: ${d}`;
+    case "decoy_engaged": return `<b>${who}</b> took the bait &mdash; ${d}`;
+    case "decoy_probe": return `<b>${who}</b> ${d} <i>(logged by the decoy)</i>`;
+    case "decoy_done": return `<b>${who}</b> ${d}`;
     default: return `<b>${who}</b> ${kind.replace(/_/g, " ")}: ${d}`;
   }
 }
@@ -454,6 +499,7 @@ function buildControls() {
   btns.push({cls: "bulbbtn", text: "Infect dumb bulb", key: "b", path: "scenario/infect_bulb"});
   if (bleAvailable()) btns.push({cls: "bulbbtn", text: "Infect BLE bulb", key: "t", path: "scenario/infect_ble"});
   btns.push({cls: "cure", text: "Attack the cure", key: "c", path: "scenario/cure"});
+  btns.push({cls: "bulbbtn", text: "Attacker explores decoy", key: "d", path: "scenario/explore_decoy"});
   btns.push({cls: "small", text: "Project to 10,000 devices", key: "p", path: "epidemic"});
   btns.push({cls: "reset", text: "Reset", key: "r", path: "reset"});
   btns.push({cls: "small", text: "Explain incident", key: "e", path: "explain"});
@@ -469,7 +515,11 @@ function buildControls() {
   });
 }
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey || !$("modal").hidden) { if (e.key === "Escape") closeModal(); return; }
+  const modalOpen = !$("modal").hidden || !$("reportModal").hidden;
+  if (e.ctrlKey || e.metaKey || e.altKey || modalOpen) {
+    if (e.key === "Escape") { closeModal(); $("reportModal").hidden = true; }
+    return;
+  }
   const path = KEYS[e.key.toLowerCase()];
   if (path) { e.preventDefault(); act(path); }
 });
@@ -494,6 +544,28 @@ async function explain() {
   } catch (err) { $("explainText").textContent = "dashboard not reachable"; }
 }
 function closeModal() { $("modal").hidden = true; }
+
+// ---------------------------------------------------------------- incident report
+let lastReport = null;
+async function downloadReport() {
+  const dc = state && state.decoy;
+  if (!dc) return toast("no attacker caught yet", true);
+  try {
+    const j = await (await fetch("/api/report?src=" + encodeURIComponent(dc.active))).json();
+    lastReport = j;
+    $("reportText").textContent = j.text;
+    $("reportModal").hidden = false;
+  } catch (err) { toast("could not build the report", true); }
+}
+function saveReport() {
+  if (!lastReport) return;
+  const blob = new Blob([lastReport.text], {type: "text/plain"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hive-incident-" + (lastReport.src || "report").replace(/[^0-9a-z]/gi, "_") + ".txt";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 
 // ---------------------------------------------------------------- epidemic meter
 // Project the measured detect/spread speed onto a city of 10,000 with a standard SIR model.

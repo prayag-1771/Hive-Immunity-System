@@ -21,9 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "agent"))
+sys.path.insert(0, os.path.join(ROOT, "gateway"))
 import hive_core as hc  # noqa: E402
 import hive_net as net  # noqa: E402
 import epidemic  # noqa: E402  (same directory as this file)
+from decoy import Decoy  # noqa: E402  (gateway/)
 from hub import Hub  # noqa: E402
 
 INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
@@ -50,6 +52,8 @@ class Dashboard:
         self.my_ip = hc.static_ip(cfg["dashboard"].get("ip")) or net.guess_lan_ip()
         self.hub_ip = hc.static_ip(cfg["hub"].get("ip")) or self.my_ip
         self.hub = Hub(cfg) if run_hub else None
+        # The decoy/tarpit (gateway/decoy.py). Runs here so the one-laptop demo works too.
+        self.decoy = Decoy(cfg, net)
         self.order = [e["node_id"] for e in cfg["nodes"]]
         self.entries = {e["node_id"]: e for e in cfg["nodes"]}
         self.nodes = {nid: {"status": None, "ip": hc.static_ip(e.get("ip")), "seen": 0.0}
@@ -265,6 +269,13 @@ class Dashboard:
             if ok and name == "infect_ble":
                 self.note("pressed: infect the Bluetooth bulb", "scenario")
             return ok, msg
+        if name == "explore_decoy":
+            # The flagged attacker probes our decoy (a fake isolated device). Observe-only.
+            port = self.cfg["network"].get("decoy_port", 48080)
+            ok, msg = self._trigger("attacker", "explore", decoy_ip=self.my_ip, decoy_port=port)
+            if ok:
+                self.note("pressed: send the attacker into the decoy", "scenario")
+            return ok, msg
         return False, f"unknown scenario {'/'.join(parts)}"
 
     def reset(self):
@@ -280,6 +291,7 @@ class Dashboard:
         with self.lock:
             self._reset_immunity()
             self.defenses = {}
+        self.decoy.reset()
         self.note(f"reset: everyone back to healthy ({n} node(s))", "reset")
         return True, "reset sent"
 
@@ -424,6 +436,7 @@ class Dashboard:
                              "times": {n: round(v[0] - im["t0"], 2) for n, v in im["nodes"].items()} if im["t0"] else {},
                              "instant": im["instant"]},
                 "defenses": self.defenses, "hub_ip": self.hub_ip, "network": self.network,
+                "decoy": self.decoy.snapshot(),
             }
 
     def epidemic_projection(self):
@@ -475,6 +488,13 @@ def make_handler(dash):
                 return self._sse()
             if path == "/api/epidemic":
                 return self._send(200, dash.epidemic_projection())
+            if path == "/api/attacker":
+                return self._send(200, {"profiles": dash.decoy.get_profiles()})
+            if path == "/api/report":
+                src = dict(p.split("=", 1) for p in query.split("&") if "=" in p).get("src")
+                if not src:
+                    return self._send(400, {"error": "need ?src=IP"})
+                return self._send(200, dash.decoy.get_report(src))
             self._send(404, {"error": "not found"})
 
         def do_POST(self):
@@ -551,6 +571,7 @@ def main():
     net.set_demo_network(cfg)
     dash = Dashboard(cfg, run_hub=not args.no_hub)
     threading.Thread(target=dash.listen, name="udp", daemon=True).start()
+    dash.decoy.start()
     if dash.hub:
         dash.hub.start()
     threading.Thread(target=dash.warm_model, name="warm-model", daemon=True).start()

